@@ -8,6 +8,7 @@ import {
 import { ClientesView } from "./views/ClientesView";
 import { EnviosView } from "./views/EnviosView";
 import { OperacionesView } from "./views/OperacionesView";
+import { TarifaView } from "./views/TarifaView";
 
 interface ApiResponse {
   ok: boolean;
@@ -26,7 +27,7 @@ interface BackendTestResult {
   response: string;
 }
 
-type ActiveTab = "clientes" | "envios" | "operaciones" | "pruebas";
+type ActiveTab = "clientes" | "envios" | "tarifa" | "operaciones" | "pruebas";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("clientes");
@@ -249,6 +250,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`nav-button ${activeTab === "tarifa" ? "active" : ""}`}
+              onClick={() => setActiveTab("tarifa")}
+            >
+              Tarifa
+            </button>
+            <button
+              type="button"
               className={`nav-button ${activeTab === "operaciones" ? "active" : ""}`}
               onClick={() => setActiveTab("operaciones")}
             >
@@ -280,6 +288,10 @@ export default function App() {
 
         {activeTab === "envios" && (
           <EnviosView baseUrl={baseUrl} token={token} />
+        )}
+
+        {activeTab === "tarifa" && (
+          <TarifaView baseUrl={baseUrl} token={token} />
         )}
 
         {activeTab === "operaciones" && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface EnviosViewProps {
   baseUrl: string;
@@ -6,6 +6,16 @@ interface EnviosViewProps {
 }
 
 type EstadoEnvio = "REGISTRADO" | "EN_TRANSITO" | "ENTREGADO" | "RECHAZADO";
+
+interface ClienteItem {
+  id?: string;
+  tipo_documento?: string;
+  numero_documento?: string;
+  nombres?: string;
+  direccion?: string;
+  correo?: string;
+  rol?: string;
+}
 
 interface Envio {
   id?: string;
@@ -69,6 +79,10 @@ const PROHIBIDOS_BASE = [
 
 const FLUJO_ESTADOS: EstadoEnvio[] = ["REGISTRADO", "EN_TRANSITO", "ENTREGADO"];
 
+function parsePeso(val: string): number {
+  return Number(String(val).trim().replace(",", "."));
+}
+
 function esTextoBasura(texto: string): boolean {
   const limpio = texto.trim().toLowerCase();
   if (!limpio) return true;
@@ -82,6 +96,9 @@ function esTextoBasura(texto: string): boolean {
 
 export function EnviosView({ baseUrl, token }: EnviosViewProps) {
   const [envios, setEnvios] = useState<Envio[]>([]);
+  const [clientes, setClientes] = useState<ClienteItem[]>([]);
+  const [buscarRemitente, setBuscarRemitente] = useState("");
+  const [buscarDestinatario, setBuscarDestinatario] = useState("");
   const [prohibidos, setProhibidos] = useState<string[]>(PROHIBIDOS_BASE);
   const [form, setForm] = useState<EnvioFormState>(EMPTY_ENVIO);
   const [maxPesoKg, setMaxPesoKg] = useState("30");
@@ -116,6 +133,22 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
     }
   }
 
+  async function cargarClientes() {
+    try {
+      const res = await window.serpostApi.request({
+        baseUrl,
+        token,
+        path: "/clientes",
+        method: "GET",
+      });
+      if (res.ok && Array.isArray(res.data)) {
+        setClientes(res.data);
+      }
+    } catch {
+      // Ignora si no hay clientes cargados aún
+    }
+  }
+
   async function cargarProhibidos() {
     try {
       const res = await window.serpostApi.request({
@@ -130,7 +163,10 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
             if (typeof item === "string") return item.toLowerCase();
             if (item && typeof item === "object") {
               const obj = item as Record<string, unknown>;
-              return String(obj.nombre ?? obj.item ?? obj.descripcion ?? "").toLowerCase();
+              if (obj.activo === false) return "";
+              return String(
+                obj.palabra_clave ?? obj.nombre ?? obj.item ?? obj.descripcion ?? ""
+              ).toLowerCase();
             }
             return "";
           })
@@ -140,14 +176,35 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         }
       }
     } catch {
-      // Mantiene lista base si el endpoint no existe
+      // Mantiene lista base
     }
   }
 
   useEffect(() => {
     void cargarEnvios();
+    void cargarClientes();
     void cargarProhibidos();
   }, [baseUrl]);
+
+  const remitentesFiltrados = useMemo(() => {
+    const q = buscarRemitente.trim().toLowerCase();
+    if (!q) return clientes;
+    return clientes.filter((c) =>
+      `${c.nombres ?? ""} ${c.numero_documento ?? ""} ${c.correo ?? ""}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [clientes, buscarRemitente]);
+
+  const destinatariosFiltrados = useMemo(() => {
+    const q = buscarDestinatario.trim().toLowerCase();
+    if (!q) return clientes;
+    return clientes.filter((c) =>
+      `${c.nombres ?? ""} ${c.numero_documento ?? ""} ${c.direccion ?? ""}`
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [clientes, buscarDestinatario]);
 
   function validarReglasEnvio(data = form, limite = maxPesoKg): string[] {
     const errs: string[] = [];
@@ -176,8 +233,8 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
       errs.push("Dirección destino: bloqueada por filtro antibasura.");
     }
 
-    const peso = Number(data.peso_kg);
-    const maxP = Number(limite);
+    const peso = parsePeso(data.peso_kg);
+    const maxP = parsePeso(limite);
     if (Number.isNaN(peso) || peso <= 0) {
       errs.push("Peso (kg): debe ser mayor que 0.");
     } else if (!Number.isNaN(maxP) && maxP > 0 && peso > maxP) {
@@ -204,6 +261,29 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
     setWarnings(validarReglasEnvio(next, maxPesoKg));
   }
 
+  function seleccionarRemitente(cliente: ClienteItem) {
+    const nombre = (cliente.nombres || "").trim();
+    if (!nombre) return;
+    handleChange("remitente", nombre);
+    setBuscarRemitente(nombre);
+  }
+
+  function seleccionarDestinatario(cliente: ClienteItem) {
+    const nombre = (cliente.nombres || "").trim();
+    if (!nombre) return;
+    const next: EnvioFormState = {
+      ...form,
+      destinatario: nombre,
+      destino:
+        cliente.direccion && cliente.direccion.trim().length >= 8
+          ? cliente.direccion.trim().slice(0, 20)
+          : form.destino,
+    };
+    setForm(next);
+    setBuscarDestinatario(nombre);
+    setWarnings(validarReglasEnvio(next, maxPesoKg));
+  }
+
   async function registrarYSimular(modoSimulacion: boolean) {
     setStatusMsg("");
     setErrorMsg("");
@@ -220,9 +300,11 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
       return;
     }
 
-    const pesoNum = Number(form.peso_kg);
-    const maxNum = Number(maxPesoKg);
-    const tarifaEstimada = Number.isNaN(pesoNum) ? 10 : Math.max(10, Math.round((10 + pesoNum * 3.5) * 100) / 100);
+    const pesoNum = parsePeso(form.peso_kg);
+    const maxNum = parsePeso(maxPesoKg);
+    const tarifaEstimada = Number.isNaN(pesoNum)
+      ? 10
+      : Math.max(10, Math.round((10 + pesoNum * 3.5) * 100) / 100);
 
     const payload: Envio = {
       codigo: form.codigo.trim().toUpperCase(),
@@ -233,7 +315,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
       descripcion: form.descripcion.trim(),
       estado: errs.length > 0 ? "RECHAZADO" : modoSimulacion ? "EN_TRANSITO" : "REGISTRADO",
       simulacion_log: modoSimulacion
-        ? `Despachado a ${form.destino.trim()} (${pesoNum} kg / máx ${maxNum} kg) - Tarifa sim. S/ ${tarifaEstimada}`
+        ? `Despachado a ${form.destino.trim()} (${pesoNum} kg / máx ${maxNum || 30} kg) - Tarifa sim. S/ ${tarifaEstimada}`
         : "Registrado en agencia",
     };
 
@@ -259,6 +341,8 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         );
       }
       setForm(EMPTY_ENVIO);
+      setBuscarRemitente("");
+      setBuscarDestinatario("");
       setWarnings([]);
       await cargarEnvios();
     } else {
@@ -340,8 +424,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
           <label>
             Peso máximo permitido (kg)
             <input
-              type="number"
-              step="0.5"
+              type="text"
               value={maxPesoKg}
               onChange={(e) => {
                 setMaxPesoKg(e.target.value);
@@ -352,7 +435,58 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
           <span className="badge ok">
             Prohibidos activos: {prohibidos.length} términos
           </span>
+          <span className="badge ok">
+            Clientes cargados: {clientes.length}
+          </span>
         </div>
+      </div>
+
+      <div className="grid-form">
+        <label>
+          Buscador de remitente (nombre o DNI/RUC)
+          <input
+            value={buscarRemitente}
+            onChange={(e) => setBuscarRemitente(e.target.value)}
+            placeholder="Buscar remitente..."
+          />
+          <select
+            value=""
+            onChange={(e) => {
+              const found = clientes.find((c, idx) => (c.id || String(idx)) === e.target.value);
+              if (found) seleccionarRemitente(found);
+            }}
+          >
+            <option value="">-- Seleccionar remitente ({remitentesFiltrados.length}) --</option>
+            {remitentesFiltrados.map((c, idx) => (
+              <option key={c.id || idx} value={c.id || String(idx)}>
+                {c.nombres} ({c.tipo_documento || "DOC"} {c.numero_documento || "-"})
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Buscador de destinatario (nombre o DNI/RUC)
+          <input
+            value={buscarDestinatario}
+            onChange={(e) => setBuscarDestinatario(e.target.value)}
+            placeholder="Buscar destinatario..."
+          />
+          <select
+            value=""
+            onChange={(e) => {
+              const found = clientes.find((c, idx) => (c.id || String(idx)) === e.target.value);
+              if (found) seleccionarDestinatario(found);
+            }}
+          >
+            <option value="">-- Seleccionar destinatario ({destinatariosFiltrados.length}) --</option>
+            {destinatariosFiltrados.map((c, idx) => (
+              <option key={c.id || idx} value={c.id || String(idx)}>
+                {c.nombres} ({c.tipo_documento || "DOC"} {c.numero_documento || "-"})
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <form
@@ -402,10 +536,10 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         <label>
           Peso paquete (kg)
           <input
-            type="number"
-            step="0.1"
+            type="text"
             value={form.peso_kg}
             onChange={(e) => handleChange("peso_kg", e.target.value)}
+            placeholder="1.5"
           />
         </label>
 
