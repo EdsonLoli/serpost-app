@@ -1,67 +1,100 @@
-import { useState } from "react";
-
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+import { useMemo, useState } from "react";
 
 interface OperacionesViewProps {
   baseUrl: string;
   token: string;
 }
 
+type HttpMethod = "GET" | "POST" | "PUT";
+type LineaNegocio = "Personal" | "Empresarial" | "Encomienda" | "Filatelia";
+
+function parseNum(val: string): number {
+  return Number(String(val).trim().replace(",", "."));
+}
+
 export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
+  const [pesoEnvio, setPesoEnvio] = useState("2.5");
+  const [limiteMax, setLimiteMax] = useState("30");
+  const [tarifaBase, setTarifaBase] = useState("10");
+  const [costoKg, setCostoKg] = useState("3.5");
+  const [igvPct, setIgvPct] = useState("18");
+  const [lineaNegocio, setLineaNegocio] = useState<LineaNegocio>("Encomienda");
+  const [palabraProhibida, setPalabraProhibida] = useState("explosivo");
+  const [contenidoPrueba, setContenidoPrueba] = useState("Documentos y libros");
+
   const [method, setMethod] = useState<HttpMethod>("GET");
-  const [endpoint, setEndpoint] = useState("/envios");
-  const [jsonBody, setJsonBody] = useState(
-    '{\n  "codigo": "ENV-001",\n  "peso_kg": 2.5,\n  "descripcion": "Paquete de prueba"\n}'
-  );
-  const [pesoKg, setPesoKg] = useState("2.5");
-  const [maxPesoKg, setMaxPesoKg] = useState("30");
-  const [resultStatus, setResultStatus] = useState<string>("");
-  const [resultBody, setResultBody] = useState<string>("");
+  const [path, setPath] = useState("/envios");
   const [loading, setLoading] = useState(false);
 
-  const pesoNum = Number(pesoKg);
-  const maxNum = Number(maxPesoKg);
-  const pesoValido = !Number.isNaN(pesoNum) && pesoNum > 0 && pesoNum <= maxNum;
+  const [lastStatus, setLastStatus] = useState<number | null>(null);
+  const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+  const [lastResponse, setLastResponse] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState<string>("");
 
-  async function enviarPeticion(
-    customMethod: HttpMethod = method,
-    customPath: string = endpoint,
-    customBody?: string
-  ) {
+  const evaluacionReglas = useMemo(() => {
+    const peso = parseNum(pesoEnvio);
+    const max = parseNum(limiteMax);
+    const base = parseNum(tarifaBase);
+    const kgRate = parseNum(costoKg);
+    const igv = parseNum(igvPct);
+
+    const pesoValido = !Number.isNaN(peso) && peso > 0 && !Number.isNaN(max) && peso <= max;
+    const subtotal =
+      !Number.isNaN(peso) && !Number.isNaN(base) && !Number.isNaN(kgRate)
+        ? Math.max(0, base + peso * kgRate)
+        : 0;
+    const total = subtotal * (1 + (Number.isNaN(igv) ? 0 : igv / 100));
+
+    const prohibida = palabraProhibida.trim().toLowerCase();
+    const contieneProhibido =
+      prohibida.length > 0 && contenidoPrueba.trim().toLowerCase().includes(prohibida);
+
+    return {
+      pesoValido,
+      subtotal: Number(subtotal.toFixed(2)),
+      total: Number(total.toFixed(2)),
+      contieneProhibido,
+    };
+  }, [pesoEnvio, limiteMax, tarifaBase, costoKg, igvPct, palabraProhibida, contenidoPrueba]);
+
+  function seleccionarEndpoint(nextMethod: HttpMethod, nextPath: string) {
+    setMethod(nextMethod);
+    setPath(nextPath);
+    setErrorMsg("");
+  }
+
+  async function enviarPeticion() {
+    setErrorMsg("");
+    setLastResponse("");
+    setLastStatus(null);
+    setLastDurationMs(null);
+
+    const cleanPath = path.trim().startsWith("/") ? path.trim() : `/${path.trim()}`;
+
     setLoading(true);
-    setResultStatus("");
-    setResultBody("");
+    const started = performance.now();
+    try {
+      const res = await window.serpostApi.request({
+        baseUrl,
+        token,
+        path: cleanPath,
+        method,
+      });
+      setLastDurationMs(Math.round(performance.now() - started));
+      setLastStatus(res.status || null);
 
-    let parsedBody: unknown = undefined;
-    if (customMethod !== "GET") {
-      const raw = customBody ?? jsonBody;
-      if (raw.trim()) {
-        try {
-          parsedBody = JSON.parse(raw);
-        } catch {
-          setLoading(false);
-          setResultStatus("JSON invalido");
-          setResultBody("El cuerpo JSON tiene un error de sintaxis.");
-          return;
-        }
+      if (typeof res.data === "string") {
+        setLastResponse(res.data);
+      } else if (res.data !== null && res.data !== undefined) {
+        setLastResponse(JSON.stringify(res.data, null, 2));
+      } else {
+        setLastResponse(res.error || "Sin cuerpo de respuesta");
       }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Error ejecutando la petición.");
+    } finally {
+      setLoading(false);
     }
-
-    const res = await window.serpostApi.request({
-      baseUrl,
-      token,
-      path: customPath,
-      method: customMethod,
-      body: parsedBody,
-    });
-
-    setLoading(false);
-    setResultStatus(`HTTP ${res.status} (${res.ok ? "OK" : "Error"})`);
-    setResultBody(
-      typeof res.data === "string"
-        ? res.data
-        : JSON.stringify(res.data ?? res.error ?? "Sin contenido", null, 2)
-    );
   }
 
   return (
@@ -73,67 +106,157 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
         </div>
       </div>
 
-      <div className="quick-chips">
+      <div className="inline-inputs">
         <button
           type="button"
-          onClick={() => {
-            setMethod("GET");
-            setEndpoint("/clientes");
-            void enviarPeticion("GET", "/clientes");
-          }}
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("GET", "/clientes")}
         >
           GET /clientes
         </button>
         <button
           type="button"
-          onClick={() => {
-            setMethod("GET");
-            setEndpoint("/envios");
-            void enviarPeticion("GET", "/envios");
-          }}
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("GET", "/envios")}
         >
           GET /envios
         </button>
         <button
           type="button"
-          onClick={() => {
-            setMethod("GET");
-            setEndpoint("/contenidos_prohibidos");
-            void enviarPeticion("GET", "/contenidos_prohibidos");
-          }}
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("GET", "/contenidos_prohibidos")}
         >
           GET /contenidos_prohibidos
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("POST", "/clientes")}
+        >
+          POST /clientes
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("POST", "/envios")}
+        >
+          POST /envios
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("PUT", "/clientes")}
+        >
+          PUT /clientes
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => seleccionarEndpoint("PUT", "/envios")}
+        >
+          PUT /envios
         </button>
       </div>
 
       <div className="rule-checker">
-        <strong>Validador rapido de peso y limites:</strong>
+        <strong>Variables de reglas y simulación en vivo:</strong>
+        <div className="grid-form">
+          <label>
+            Peso envío (kg)
+            <input
+              type="text"
+              value={pesoEnvio}
+              onChange={(e) => setPesoEnvio(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Límite máx (kg)
+            <input
+              type="text"
+              value={limiteMax}
+              onChange={(e) => setLimiteMax(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Línea de negocio
+            <select
+              value={lineaNegocio}
+              onChange={(e) => setLineaNegocio(e.target.value as LineaNegocio)}
+            >
+              <option value="Personal">Personal</option>
+              <option value="Empresarial">Empresarial</option>
+              <option value="Encomienda">Encomienda</option>
+              <option value="Filatelia">Filatelia</option>
+            </select>
+          </label>
+
+          <label>
+            Tarifa base (S/)
+            <input
+              type="text"
+              value={tarifaBase}
+              onChange={(e) => setTarifaBase(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Costo por kg (S/)
+            <input
+              type="text"
+              value={costoKg}
+              onChange={(e) => setCostoKg(e.target.value)}
+            />
+          </label>
+
+          <label>
+            IGV (%)
+            <input
+              type="text"
+              value={igvPct}
+              onChange={(e) => setIgvPct(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Palabra prohibida de prueba
+            <input
+              type="text"
+              value={palabraProhibida}
+              onChange={(e) => setPalabraProhibida(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Contenido de prueba
+            <input
+              type="text"
+              value={contenidoPrueba}
+              onChange={(e) => setContenidoPrueba(e.target.value)}
+            />
+          </label>
+        </div>
+
         <div className="inline-inputs">
-          <label>
-            Peso envio (kg)
-            <input
-              type="number"
-              step="0.1"
-              value={pesoKg}
-              onChange={(e) => setPesoKg(e.target.value)}
-            />
-          </label>
-          <label>
-            Limite max (kg)
-            <input
-              type="number"
-              step="1"
-              value={maxPesoKg}
-              onChange={(e) => setMaxPesoKg(e.target.value)}
-            />
-          </label>
-          <span className={pesoValido ? "badge ok" : "badge err"}>
-            {pesoValido ? "Dentro del limite" : "Fuera de limite / invalido"}
+          <span className={evaluacionReglas.pesoValido ? "badge ok" : "badge err"}>
+            {evaluacionReglas.pesoValido ? "Dentro del límite" : "Excede límite de peso"}
+          </span>
+          <span className={!evaluacionReglas.contieneProhibido ? "badge ok" : "badge err"}>
+            {!evaluacionReglas.contieneProhibido
+              ? "Contenido permitido"
+              : `Bloqueado por "${palabraProhibida}"`}
+          </span>
+          <span>
+            Subtotal: <strong>S/ {evaluacionReglas.subtotal.toFixed(2)}</strong>
+          </span>
+          <span>
+            Total c/IGV: <strong>S/ {evaluacionReglas.total.toFixed(2)}</strong>
           </span>
         </div>
       </div>
 
-      <div className="console-row">
+      <div className="inline-inputs">
         <select
           value={method}
           onChange={(e) => setMethod(e.target.value as HttpMethod)}
@@ -141,13 +264,14 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
           <option value="GET">GET</option>
           <option value="POST">POST</option>
           <option value="PUT">PUT</option>
-          <option value="DELETE">DELETE</option>
         </select>
+
         <input
-          value={endpoint}
-          onChange={(e) => setEndpoint(e.target.value)}
-          placeholder="/clientes o /envios/1"
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          placeholder="/envios"
         />
+
         <button
           className="primary-button"
           type="button"
@@ -158,23 +282,15 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
         </button>
       </div>
 
-      {method !== "GET" && (
-        <label className="block-label">
-          Cuerpo JSON ({method})
-          <textarea
-            rows={7}
-            value={jsonBody}
-            onChange={(e) => setJsonBody(e.target.value)}
-          />
-        </label>
-      )}
+      {errorMsg && <div className="notice danger">{errorMsg}</div>}
 
-      {resultStatus && (
-        <div className="response-box">
-          <div className="response-header">
-            <strong>Respuesta: {resultStatus}</strong>
-          </div>
-          <pre>{resultBody}</pre>
+      {lastResponse && (
+        <div className="test-response">
+          <span>
+            Respuesta HTTP: <strong>{lastStatus ?? "SIN RESP"}</strong>
+            {lastDurationMs !== null ? ` (${lastDurationMs} ms)` : ""}
+          </span>
+          <pre>{lastResponse}</pre>
         </div>
       )}
     </section>
