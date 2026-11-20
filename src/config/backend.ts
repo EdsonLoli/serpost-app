@@ -24,6 +24,7 @@ export function getSavedToken(): string {
     return localStorage.getItem(STORAGE_TOKEN_KEY) || "";
   } catch {
     return "";
+    
   }
 }
 
