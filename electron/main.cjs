@@ -1,15 +1,49 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
+﻿const { app, BrowserWindow, ipcMain } = require("electron");
+const path = require("path");
+
+ipcMain.handle("serpost-api:request", async (_event, { baseUrl, token, path: reqPath, method = "GET", body }) => {
+  try {
+    const cleanBase = (baseUrl || "http://localhost:3001").replace(/\/+$/, "");
+    const cleanPath = reqPath.startsWith("/") ? reqPath : `/${reqPath}`;
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    const res = await fetch(`${cleanBase}${cleanPath}`, {
+      method,
+      headers,
+      body: body !== undefined && method !== "GET" && method !== "HEAD" ? JSON.stringify(body) : undefined,
+    });
+
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text || null;
+    }
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      data,
+      error: res.ok ? null : (typeof data === "string" ? data : JSON.stringify(data)),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      error: err instanceof Error ? err.message : "Error de red",
+    };
+  }
+});
 
 function createWindow() {
-  const window = new BrowserWindow({
-    width: 1180,
-    height: 760,
-    minWidth: 920,
-    minHeight: 620,
-    autoHideMenuBar: true,
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -17,58 +51,24 @@ function createWindow() {
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
-    window.loadURL(devUrl);
+    win.loadURL(devUrl);
   } else {
-    window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
 }
 
-ipcMain.handle('serpost-api-request', async (_event, request) => {
-  const baseUrl = String(request.baseUrl || '').replace(/\/$/, '');
-  if (!baseUrl) {
-    return { ok: false, error: 'Configure la URL del servicio.' };
-  }
+app.whenReady().then(() => {
+  createWindow();
 
-  try {
-    const response = await fetch(`${baseUrl}${request.path}`, {
-      method: request.method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(request.token ? { Authorization: `Bearer ${request.token}` } : {}),
-      },
-      body: request.body ? JSON.stringify(request.body) : undefined,
-    });
-
-    const text = await response.text();
-    let data = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = text;
-      }
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
     }
+  });
+});
 
-    return {
-      ok: response.ok,
-      status: response.status,
-      data,
-      error: response.ok ? null : (data?.message || data?.detail || `Error HTTP ${response.status}`),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'No se pudo conectar con el servicio.',
-    };
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
   }
-});
-
-app.whenReady().then(createWindow);
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

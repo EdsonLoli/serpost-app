@@ -1,5 +1,5 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld('serpostApi', {
-  request: (request) => ipcRenderer.invoke('serpost-api-request', request),
+contextBridge.exposeInMainWorld("serpostApi", {
+  request: (payload) => ipcRenderer.invoke("serpost-api:request", payload),
 });

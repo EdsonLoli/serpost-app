@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-El backend predeterminado es `http://localhost:8080`. Puede cambiarse desde **Configuracion** dentro de la aplicacion.
+El backend predeterminado es `http://localhost:3001`. Puede cambiarse desde **Configuracion** dentro de la aplicacion.
 
 ## Operaciones disponibles
 
