@@ -29,6 +29,24 @@ interface BackendTestResult {
 
 type ActiveTab = "clientes" | "envios" | "tarifa" | "operaciones" | "pruebas";
 
+function generarUuidAleatorio(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const hex = Array.from({ length: 32 }, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  ).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function resumenRespuesta(status: number | null, passed: boolean): string {
+  if (!passed) return "No coincide con el estado HTTP esperado.";
+  if (status === 404) return "Respuesta 404 esperada: el UUID aleatorio no existe.";
+  if (status === 409) return "Respuesta 409 esperada: el backend bloqueó el documento duplicado.";
+  if (status === 400) return "Respuesta 400 esperada: el backend validó los campos obligatorios.";
+  return "Respuesta correcta del backend.";
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("clientes");
   const [baseUrl, setBaseUrl] = useState<string>(() => getSavedBackendUrl());
@@ -97,16 +115,18 @@ export default function App() {
       setTestResults([...results]);
     };
 
+    const uuidPrueba = generarUuidAleatorio();
+
     registrar(
       await ejecutarPrueba(
-        "Autenticacion requerida",
-        "GET a un cliente sin Bearer debe ser rechazado.",
-        "401",
+        "Cliente inexistente (UUID)",
+        "GET con UUID aleatorio inexistente devuelve 404 controlado.",
+        "404",
         () =>
           window.serpostApi.request({
             baseUrl,
             token: "",
-            path: "/clientes/1",
+            path: `/clientes/${uuidPrueba}`,
             method: "GET",
           }),
       ),
@@ -144,9 +164,10 @@ export default function App() {
         const parsed = JSON.parse(registro.response);
         idCliente = parsed?.id ? String(parsed.id) : "";
       } catch {
-        const match = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)/i.exec(
-          registro.response,
-        );
+        const match =
+          /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)/i.exec(
+            registro.response,
+          );
         idCliente = match?.[1] || "";
       }
 
@@ -358,6 +379,7 @@ export default function App() {
                     </div>
                     <div className="test-response">
                       <span>Esperado: HTTP {item.expected}</span>
+                      <p className="helper">{resumenRespuesta(item.status, item.passed)}</p>
                       <pre>{item.response}</pre>
                     </div>
                   </article>
