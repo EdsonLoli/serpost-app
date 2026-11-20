@@ -1,4 +1,6 @@
-﻿import { useState } from "react";
+import { useState } from "react";
+
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 interface OperacionesViewProps {
   baseUrl: string;
@@ -6,9 +8,11 @@ interface OperacionesViewProps {
 }
 
 export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
-  const [method, setMethod] = useState<"GET" | "POST" | "PUT" | "DELETE">("GET");
+  const [method, setMethod] = useState<HttpMethod>("GET");
   const [endpoint, setEndpoint] = useState("/envios");
-  const [jsonBody, setJsonBody] = useState('{\n  "codigo": "ENV-001",\n  "peso_kg": 2.5,\n  "descripcion": "Paquete de prueba"\n}');
+  const [jsonBody, setJsonBody] = useState(
+    '{\n  "codigo": "ENV-001",\n  "peso_kg": 2.5,\n  "descripcion": "Paquete de prueba"\n}'
+  );
   const [pesoKg, setPesoKg] = useState("2.5");
   const [maxPesoKg, setMaxPesoKg] = useState("30");
   const [resultStatus, setResultStatus] = useState<string>("");
@@ -19,7 +23,11 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
   const maxNum = Number(maxPesoKg);
   const pesoValido = !Number.isNaN(pesoNum) && pesoNum > 0 && pesoNum <= maxNum;
 
-  async function enviarPeticion(customMethod = method, customPath = endpoint, customBody?: string) {
+  async function enviarPeticion(
+    customMethod: HttpMethod = method,
+    customPath: string = endpoint,
+    customBody?: string
+  ) {
     setLoading(true);
     setResultStatus("");
     setResultBody("");
@@ -32,7 +40,7 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
           parsedBody = JSON.parse(raw);
         } catch {
           setLoading(false);
-          setResultStatus("JSON inválido");
+          setResultStatus("JSON invalido");
           setResultBody("El cuerpo JSON tiene un error de sintaxis.");
           return;
         }
@@ -66,36 +74,70 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
       </div>
 
       <div className="quick-chips">
-        <button type="button" onClick={() => { setMethod("GET"); setEndpoint("/clientes"); enviarPeticion("GET", "/clientes"); }}>
+        <button
+          type="button"
+          onClick={() => {
+            setMethod("GET");
+            setEndpoint("/clientes");
+            void enviarPeticion("GET", "/clientes");
+          }}
+        >
           GET /clientes
         </button>
-        <button type="button" onClick={() => { setMethod("GET"); setEndpoint("/envios"); enviarPeticion("GET", "/envios"); }}>
+        <button
+          type="button"
+          onClick={() => {
+            setMethod("GET");
+            setEndpoint("/envios");
+            void enviarPeticion("GET", "/envios");
+          }}
+        >
           GET /envios
         </button>
-        <button type="button" onClick={() => { setMethod("GET"); setEndpoint("/contenidos_prohibidos"); enviarPeticion("GET", "/contenidos_prohibidos"); }}>
+        <button
+          type="button"
+          onClick={() => {
+            setMethod("GET");
+            setEndpoint("/contenidos_prohibidos");
+            void enviarPeticion("GET", "/contenidos_prohibidos");
+          }}
+        >
           GET /contenidos_prohibidos
         </button>
       </div>
 
       <div className="rule-checker">
-        <strong>Validador rápido de peso y límites:</strong>
+        <strong>Validador rapido de peso y limites:</strong>
         <div className="inline-inputs">
           <label>
-            Peso envío (kg)
-            <input type="number" step="0.1" value={pesoKg} onChange={(e) => setPesoKg(e.target.value)} />
+            Peso envio (kg)
+            <input
+              type="number"
+              step="0.1"
+              value={pesoKg}
+              onChange={(e) => setPesoKg(e.target.value)}
+            />
           </label>
           <label>
-            Límite máx (kg)
-            <input type="number" step="1" value={maxPesoKg} onChange={(e) => setMaxPesoKg(e.target.value)} />
+            Limite max (kg)
+            <input
+              type="number"
+              step="1"
+              value={maxPesoKg}
+              onChange={(e) => setMaxPesoKg(e.target.value)}
+            />
           </label>
           <span className={pesoValido ? "badge ok" : "badge err"}>
-            {pesoValido ? "Dentro del límite" : "Fuera de límite / inválido"}
+            {pesoValido ? "Dentro del limite" : "Fuera de limite / invalido"}
           </span>
         </div>
       </div>
 
       <div className="console-row">
-        <select value={method} onChange={(e) => setMethod(e.target.value as "GET" | "POST" | "PUT" | "DELETE")}>
+        <select
+          value={method}
+          onChange={(e) => setMethod(e.target.value as HttpMethod)}
+        >
           <option value="GET">GET</option>
           <option value="POST">POST</option>
           <option value="PUT">PUT</option>
@@ -106,7 +148,12 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
           onChange={(e) => setEndpoint(e.target.value)}
           placeholder="/clientes o /envios/1"
         />
-        <button className="primary-button" type="button" disabled={loading} onClick={() => enviarPeticion()}>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={loading}
+          onClick={() => void enviarPeticion()}
+        >
           {loading ? "Enviando..." : "Enviar"}
         </button>
       </div>
@@ -114,7 +161,11 @@ export function OperacionesView({ baseUrl, token }: OperacionesViewProps) {
       {method !== "GET" && (
         <label className="block-label">
           Cuerpo JSON ({method})
-          <textarea rows={7} value={jsonBody} onChange={(e) => setJsonBody(e.target.value)} />
+          <textarea
+            rows={7}
+            value={jsonBody}
+            onChange={(e) => setJsonBody(e.target.value)}
+          />
         </label>
       )}
 

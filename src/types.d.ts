@@ -41,7 +41,7 @@ declare global {
         baseUrl: string;
         token: string;
         path: string;
-        method: 'GET' | 'POST' | 'PUT';
+        method: 'GET' | 'POST' | 'PUT' | 'DELETE';
         body?: unknown;
       }) => Promise<ApiResponse>;
     };

@@ -1,148 +1,48 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import type {
-  ApiResponse,
-  BackendTestResult,
-  ClienteDetails,
-  ClienteRequest,
-  ClienteResponse,
-} from './types';
+import { useEffect, useState } from "react";
+import {
+  getSavedBackendUrl,
+  getSavedToken,
+  saveBackendToken,
+  saveBackendUrl,
+} from "./config/backend";
+import { ClientesView } from "./views/ClientesView";
+import { OperacionesView } from "./views/OperacionesView";
 
-const EMPTY_CLIENTE: ClienteRequest = {
-  tipo_documento: 'DNI',
-  numero_documento: '',
-  nombres: '',
-  direccion: '',
-  telefono: '',
-  correo: '',
-  rol: 'remitente',
-};
-
-function readSetting(key: string, fallback: string) {
-  return localStorage.getItem(key) || fallback;
+interface ApiResponse {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  error: string | null;
 }
 
+interface BackendTestResult {
+  name: string;
+  description: string;
+  passed: boolean;
+  status: number | null;
+  durationMs: number;
+  expected: string;
+  response: string;
+}
+
+type ActiveTab = "clientes" | "operaciones" | "pruebas";
+
 export default function App() {
-  const [baseUrl, setBaseUrl] = useState(() => readSetting('serpost_api_url', 'http://localhost:8080'));
-  const [token, setToken] = useState(() => readSetting('serpost_api_token', ''));
-  const [showSettings, setShowSettings] = useState(false);
-  const [mode, setMode] = useState<'nuevo' | 'buscar' | 'editar'>('nuevo');
-  const [cliente, setCliente] = useState<ClienteRequest>(EMPTY_CLIENTE);
-  const [clienteId, setClienteId] = useState('');
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [activeView, setActiveView] = useState<'clientes' | 'pruebas'>('clientes');
-  const [testsRunning, setTestsRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("clientes");
+  const [baseUrl, setBaseUrl] = useState<string>(() => getSavedBackendUrl());
+  const [token, setToken] = useState<string>(() => getSavedToken());
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+
+  const [testsRunning, setTestsRunning] = useState<boolean>(false);
   const [testResults, setTestResults] = useState<BackendTestResult[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('serpost_api_url', baseUrl);
+    saveBackendUrl(baseUrl);
   }, [baseUrl]);
 
   useEffect(() => {
-    localStorage.setItem('serpost_api_token', token);
+    saveBackendToken(token);
   }, [token]);
-
-  function clearFeedback() {
-    setMessage('');
-    setError('');
-  }
-
-  function updateField<K extends keyof ClienteRequest>(key: K, value: ClienteRequest[K]) {
-    setCliente((current) => ({ ...current, [key]: value }));
-  }
-
-  function reset() {
-    clearFeedback();
-    setCliente(EMPTY_CLIENTE);
-    setClienteId('');
-    setMode('nuevo');
-  }
-
-  async function registrar(event: FormEvent) {
-    event.preventDefault();
-    clearFeedback();
-    setBusy(true);
-    const response = await window.serpostApi.request({
-      baseUrl,
-      token,
-      path: '/clientes',
-      method: 'POST',
-      body: cliente,
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(response.error || 'No se pudo registrar el cliente.');
-      return;
-    }
-
-    const data = response.data as ClienteResponse;
-    setClienteId(data.id_cliente);
-    setMode('editar');
-    setMessage(`Cliente registrado correctamente. ID: ${data.id_cliente}`);
-  }
-
-  async function buscar(event: FormEvent) {
-    event.preventDefault();
-    clearFeedback();
-    if (!clienteId.trim()) {
-      setError('Ingrese el ID de cliente.');
-      return;
-    }
-
-    setBusy(true);
-    const response = await window.serpostApi.request({
-      baseUrl,
-      token,
-      path: `/clientes/${encodeURIComponent(clienteId.trim())}`,
-      method: 'GET',
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(response.error || 'No se encontro el cliente.');
-      return;
-    }
-
-    const data = response.data as ClienteDetails;
-    setCliente({
-      tipo_documento: data.tipo_documento as ClienteRequest['tipo_documento'],
-      numero_documento: data.numero_documento,
-      nombres: data.nombres,
-      direccion: data.direccion,
-      telefono: data.telefono,
-      correo: data.correo,
-      rol: data.rol as ClienteRequest['rol'],
-    });
-    setMode('editar');
-    setMessage('Datos del cliente cargados.');
-  }
-
-  async function actualizar(event: FormEvent) {
-    event.preventDefault();
-    clearFeedback();
-    if (!clienteId.trim()) {
-      setError('Busque o registre un cliente antes de actualizar.');
-      return;
-    }
-
-    setBusy(true);
-    const response = await window.serpostApi.request({
-      baseUrl,
-      token,
-      path: `/clientes/${encodeURIComponent(clienteId.trim())}`,
-      method: 'PUT',
-      body: cliente,
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      setError(response.error || 'No se pudo actualizar el cliente.');
-      return;
-    }
-    setMessage('Cliente actualizado correctamente.');
-  }
 
   async function ejecutarPrueba(
     name: string,
@@ -155,13 +55,13 @@ export default function App() {
       const response = await operation();
       const passed = response.status !== 0 && expected === String(response.status);
       const durationMs = Math.round(performance.now() - startedAt);
-      let responseText = '';
-      if (typeof response.data === 'string') {
+      let responseText = "";
+      if (typeof response.data === "string") {
         responseText = response.data;
-      } else if (response.data !== null) {
+      } else if (response.data !== null && response.data !== undefined) {
         responseText = JSON.stringify(response.data, null, 2);
       } else {
-        responseText = response.error || 'Sin cuerpo de respuesta';
+        responseText = response.error || "Sin cuerpo de respuesta";
       }
 
       return {
@@ -181,142 +81,143 @@ export default function App() {
         status: null,
         durationMs: Math.round(performance.now() - startedAt),
         expected,
-        response: caught instanceof Error ? caught.message : 'La prueba produjo un error.',
+        response: caught instanceof Error ? caught.message : "La prueba produjo un error.",
       };
     }
   }
 
   async function ejecutarPruebasBackend() {
-    clearFeedback();
     setTestsRunning(true);
     setTestResults([]);
-    const suffix = `${Date.now()}`;
-
     const results: BackendTestResult[] = [];
-    const registrar = (result: BackendTestResult) => {
-      results.push(result);
+    const registrar = (item: BackendTestResult) => {
+      results.push(item);
       setTestResults([...results]);
     };
 
-    registrar(await ejecutarPrueba(
-      'Autenticacion requerida',
-      'GET a un cliente sin Bearer debe ser rechazado.',
-      '401',
-      () => window.serpostApi.request({
-        baseUrl,
-        token: '',
-        path: '/clientes/00000000-0000-0000-0000-000000000001',
-        method: 'GET',
-      }),
-    ));
+    registrar(
+      await ejecutarPrueba(
+        "Autenticacion requerida",
+        "GET a un cliente sin Bearer debe ser rechazado.",
+        "401",
+        () =>
+          window.serpostApi.request({
+            baseUrl,
+            token: "",
+            path: "/clientes/1",
+            method: "GET",
+          }),
+      ),
+    );
 
-    const clientePrueba: ClienteRequest = {
-      tipo_documento: 'DNI',
-      numero_documento: `4${suffix.slice(-7)}`,
-      nombres: 'Ana Perez Prueba',
-      direccion: 'Calle Principal 123',
-      telefono: '912345678',
+    const suffix = String(Date.now()).slice(-6);
+    const clientePrueba = {
+      tipo_documento: "DNI",
+      numero_documento: `44${suffix}`,
+      nombres: "Ana Perez Prueba",
+      direccion: "Calle Principal 123",
+      telefono: "912345678",
       correo: `ana.${suffix}@example.com`,
-      rol: 'remitente',
+      rol: "remitente",
     };
 
     const registro = await ejecutarPrueba(
-      'Registrar cliente',
-      'POST /clientes debe crear un cliente y devolver 201.',
-      '201',
-      () => window.serpostApi.request({
-        baseUrl,
-        token,
-        path: '/clientes',
-        method: 'POST',
-        body: clientePrueba,
-      }),
+      "Registrar cliente",
+      "POST /clientes debe crear un cliente y devolver 201.",
+      "201",
+      () =>
+        window.serpostApi.request({
+          baseUrl,
+          token,
+          path: "/clientes",
+          method: "POST",
+          body: clientePrueba,
+        }),
     );
     registrar(registro);
 
+    let idCliente = "";
     if (registro.status === 201) {
-      let idCliente = '';
       try {
-        const match = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(registro.response);
-        idCliente = match?.[1] || '';
+        const parsed = JSON.parse(registro.response);
+        idCliente = parsed?.id ? String(parsed.id) : "";
       } catch {
-        idCliente = '';
+        const match = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]+)/i.exec(
+          registro.response,
+        );
+        idCliente = match?.[1] || "";
       }
 
       if (idCliente) {
-        registrar(await ejecutarPrueba(
-          'Consultar cliente',
-          'GET /clientes/{id_cliente} debe devolver los datos registrados.',
-          '200',
-          () => window.serpostApi.request({
-            baseUrl,
-            token,
-            path: `/clientes/${idCliente}`,
-            method: 'GET',
-          }),
-        ));
+        registrar(
+          await ejecutarPrueba(
+            "Consultar cliente",
+            "GET /clientes/{id_cliente} debe devolver los datos registrados.",
+            "200",
+            () =>
+              window.serpostApi.request({
+                baseUrl,
+                token,
+                path: `/clientes/${encodeURIComponent(idCliente)}`,
+                method: "GET",
+              }),
+          ),
+        );
 
-        const actualizacion: ClienteRequest = {
-          ...clientePrueba,
-          nombres: 'Ana Perez Actualizada',
-          direccion: 'Avenida Central 10',
-          telefono: '',
-          rol: 'destinatario',
-        };
-        registrar(await ejecutarPrueba(
-          'Actualizar cliente',
-          'PUT /clientes/{id_cliente} debe actualizar los datos.',
-          '200',
-          () => window.serpostApi.request({
-            baseUrl,
-            token,
-            path: `/clientes/${idCliente}`,
-            method: 'PUT',
-            body: actualizacion,
-          }),
-        ));
-      } else {
-        registrar({
-          name: 'Consultar y actualizar',
-          description: 'La respuesta de registro no contenia un UUID valido.',
-          passed: false,
-          status: null,
-          durationMs: 0,
-          expected: 'UUID valido',
-          response: registro.response,
-        });
+        registrar(
+          await ejecutarPrueba(
+            "Actualizar cliente",
+            "PUT /clientes/{id_cliente} debe actualizar los datos.",
+            "200",
+            () =>
+              window.serpostApi.request({
+                baseUrl,
+                token,
+                path: `/clientes/${encodeURIComponent(idCliente)}`,
+                method: "PUT",
+                body: { ...clientePrueba, nombres: "Ana Perez Actualizada" },
+              }),
+          ),
+        );
       }
     }
 
-    const duplicadoResult = await ejecutarPrueba(
-      'Documento duplicado',
-      'Registrar dos veces el mismo documento debe devolver 409.',
-      '409',
-      () => window.serpostApi.request({
-        baseUrl,
-        token,
-        path: '/clientes',
-        method: 'POST',
-        body: clientePrueba,
-      }),
+    registrar(
+      await ejecutarPrueba(
+        "Documento duplicado",
+        "Registrar dos veces el mismo documento debe devolver 409.",
+        "409",
+        () =>
+          window.serpostApi.request({
+            baseUrl,
+            token,
+            path: "/clientes",
+            method: "POST",
+            body: clientePrueba,
+          }),
+      ),
     );
-    registrar(duplicadoResult);
 
-    registrar(await ejecutarPrueba(
-      'Validacion de campos',
-      'POST sin datos obligatorios debe devolver 400.',
-      '400',
-      () => window.serpostApi.request({
-        baseUrl,
-        token,
-        path: '/clientes',
-        method: 'POST',
-        body: { tipo_documento: 'DNI' },
-      }),
-    ));
+    registrar(
+      await ejecutarPrueba(
+        "Validacion de campos",
+        "POST sin datos obligatorios debe devolver 400.",
+        "400",
+        () =>
+          window.serpostApi.request({
+            baseUrl,
+            token,
+            path: "/clientes",
+            method: "POST",
+            body: {},
+          }),
+      ),
+    );
 
     setTestsRunning(false);
   }
+
+  const passedCount = testResults.filter((item) => item.passed).length;
 
   return (
     <div className="app-shell">
@@ -325,193 +226,170 @@ export default function App() {
           <div className="brand-mark">SP</div>
           <div>
             <strong>SERPOST SOA</strong>
-            <span>Gestion de clientes</span>
+            <span>Gestion de clientes y envios</span>
           </div>
         </div>
+
         <div className="header-actions">
-          <nav className="app-nav" aria-label="Navegacion principal">
+          <nav className="app-nav">
             <button
-              className={activeView === 'clientes' ? 'nav-button active' : 'nav-button'}
               type="button"
-              onClick={() => setActiveView('clientes')}
+              className={`nav-button ${activeTab === "clientes" ? "active" : ""}`}
+              onClick={() => setActiveTab("clientes")}
             >
               Clientes
             </button>
             <button
-              className={activeView === 'pruebas' ? 'nav-button active' : 'nav-button'}
               type="button"
-              onClick={() => setActiveView('pruebas')}
+              className={`nav-button ${activeTab === "operaciones" ? "active" : ""}`}
+              onClick={() => setActiveTab("operaciones")}
+            >
+              Endpoints y Reglas
+            </button>
+            <button
+              type="button"
+              className={`nav-button ${activeTab === "pruebas" ? "active" : ""}`}
+              onClick={() => setActiveTab("pruebas")}
             >
               Pruebas del backend
             </button>
           </nav>
-          <button className="settings-button" type="button" onClick={() => setShowSettings(true)}>
+
+          <button
+            type="button"
+            className="settings-button"
+            onClick={() => setSettingsOpen(true)}
+          >
             Configuracion
           </button>
         </div>
       </header>
 
       <main className="content">
-        {activeView === 'clientes' ? (
-          <>
-            <div className="page-heading">
-              <div>
-                <p className="eyebrow">Modulo operativo</p>
-                <h1>Registro de clientes</h1>
-              </div>
-              <button className="secondary-button" type="button" onClick={reset}>Nuevo registro</button>
-            </div>
+        {activeTab === "clientes" && (
+          <ClientesView baseUrl={baseUrl} token={token} />
+        )}
 
-            <section className="lookup-card">
-              <form onSubmit={buscar} className="lookup-form">
-                <div className="field field-wide">
-                  <label htmlFor="cliente-id">ID del cliente (UUID)</label>
-                  <input
-                    id="cliente-id"
-                    value={clienteId}
-                    onChange={(event) => setClienteId(event.target.value)}
-                    placeholder="Ejemplo: 67b1d5ac-..."
-                  />
-                </div>
-                <button className="primary-button" type="submit" disabled={busy}>Buscar</button>
-              </form>
-            </section>
+        {activeTab === "operaciones" && (
+          <OperacionesView baseUrl={baseUrl} token={token} />
+        )}
 
-            {message && <div className="notice success">{message}</div>}
-            {error && <div className="notice danger">{error}</div>}
-
-            <form className="client-card" onSubmit={mode === 'editar' ? actualizar : registrar}>
-              <div className="form-section">
-                <h2>Datos personales</h2>
-                <div className="grid two-columns">
-                  <div className="field">
-                    <label htmlFor="tipo">Tipo de documento</label>
-                    <select id="tipo" value={cliente.tipo_documento} onChange={(event) => updateField('tipo_documento', event.target.value as ClienteRequest['tipo_documento'])}>
-                      <option value="DNI">DNI</option>
-                      <option value="RUC">RUC</option>
-                      <option value="CE">CE</option>
-                      <option value="PASAPORTE">Pasaporte</option>
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="documento">Numero de documento</label>
-                    <input id="documento" required value={cliente.numero_documento} onChange={(event) => updateField('numero_documento', event.target.value)} />
-                  </div>
-                  <div className="field span-two">
-                    <label htmlFor="nombres">Nombres completos</label>
-                    <input id="nombres" required value={cliente.nombres} onChange={(event) => updateField('nombres', event.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-section">
-                <h2>Datos de contacto</h2>
-                <div className="grid two-columns">
-                  <div className="field span-two">
-                    <label htmlFor="direccion">Direccion</label>
-                    <input id="direccion" required value={cliente.direccion} onChange={(event) => updateField('direccion', event.target.value)} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="telefono">Telefono</label>
-                    <input id="telefono" value={cliente.telefono} onChange={(event) => updateField('telefono', event.target.value)} placeholder="9XXXXXXXX" />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="correo">Correo electronico</label>
-                    <input id="correo" type="email" required value={cliente.correo} onChange={(event) => updateField('correo', event.target.value)} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="rol">Rol</label>
-                    <select id="rol" value={cliente.rol} onChange={(event) => updateField('rol', event.target.value as ClienteRequest['rol'])}>
-                      <option value="remitente">Remitente</option>
-                      <option value="destinatario">Destinatario</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="form-actions">
-                <button className="secondary-button" type="button" onClick={reset}>Limpiar</button>
-                <button className="primary-button" type="submit" disabled={busy}>
-                  {busy ? 'Procesando...' : mode === 'editar' ? 'Actualizar cliente' : 'Registrar cliente'}
-                </button>
-              </div>
-            </form>
-          </>
-        ) : (
-          <>
+        {activeTab === "pruebas" && (
+          <section>
             <div className="page-heading">
               <div>
                 <p className="eyebrow">Pruebas de integracion HTTP</p>
                 <h1>Pruebas del backend</h1>
               </div>
-              <button className="primary-button" type="button" onClick={ejecutarPruebasBackend} disabled={testsRunning}>
-                {testsRunning ? 'Ejecutando...' : 'Ejecutar todas las pruebas'}
+              <button
+                className="primary-button"
+                type="button"
+                onClick={ejecutarPruebasBackend}
+                disabled={testsRunning}
+              >
+                {testsRunning ? "Ejecutando..." : "Ejecutar todas las pruebas"}
               </button>
             </div>
 
-            <section className="test-summary">
+            <div className="test-summary">
               <div>
                 <span>URL del servicio</span>
                 <strong>{baseUrl}</strong>
               </div>
               <div>
                 <span>Estado</span>
-                <strong>{testsRunning ? 'En ejecucion' : testResults.length ? `${testResults.filter((item) => item.passed).length}/${testResults.length} aprobadas` : 'Sin ejecutar'}</strong>
+                <strong>
+                  {testResults.length === 0
+                    ? "Sin ejecutar"
+                    : `${passedCount}/${testResults.length} aprobadas`}
+                </strong>
               </div>
-            </section>
+            </div>
 
-            <section className="test-list">
-              {testResults.length === 0 ? (
-                <div className="empty-tests">
-                  <strong>No hay resultados todavia</strong>
-                  <p>Ejecute las pruebas para mostrar los casos, estados HTTP y respuestas del backend.</p>
-                </div>
-              ) : testResults.map((result, index) => (
-                <article className={result.passed ? 'test-item passed' : 'test-item failed'} key={`${result.name}-${index}`}>
-                  <div className="test-item-header">
-                    <div>
-                      <span className="test-index">{index + 1}</span>
+            {testResults.length === 0 ? (
+              <div className="empty-tests">
+                <strong>No hay resultados todavia</strong>
+                <p>Ejecute las pruebas para mostrar los casos, estados HTTP y respuestas del backend.</p>
+              </div>
+            ) : (
+              <div className="test-list">
+                {testResults.map((item, idx) => (
+                  <article
+                    key={`${item.name}-${idx}`}
+                    className={`test-item ${item.passed ? "passed" : "failed"}`}
+                  >
+                    <div className="test-item-header">
                       <div>
-                        <h2>{result.name}</h2>
-                        <p>{result.description}</p>
+                        <span className="test-index">{idx + 1}</span>
+                        <div>
+                          <h2>{item.name}</h2>
+                          <p>{item.description}</p>
+                        </div>
+                      </div>
+                      <div className="test-badges">
+                        <span>{item.status ?? "SIN RESP"}</span>
+                        <span>{item.durationMs} ms</span>
+                        <strong>{item.passed ? "APROBADA" : "FALLIDA"}</strong>
                       </div>
                     </div>
-                    <div className="test-badges">
-                      <span>{result.status ?? 'SIN RESP'}</span>
-                      <span>{result.durationMs} ms</span>
-                      <strong>{result.passed ? 'APROBADA' : 'FALLIDA'}</strong>
+                    <div className="test-response">
+                      <span>Esperado: HTTP {item.expected}</span>
+                      <pre>{item.response}</pre>
                     </div>
-                  </div>
-                  <div className="test-response">
-                    <span>Esperado: HTTP {result.expected}</span>
-                    <pre>{result.response || 'Sin contenido'}</pre>
-                  </div>
-                </article>
-              ))}
-            </section>
-          </>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </main>
 
-      {showSettings && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setShowSettings(false);
-        }}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      {settingsOpen && (
+        <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 id="settings-title">Configuracion del servicio</h2>
+
             <div className="field">
-              <label htmlFor="api-url">URL del backend</label>
-              <input id="api-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://localhost:8080" />
+              <label htmlFor="api-url">URL base del backend</label>
+              <input
+                id="api-url"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="http://localhost:3001"
+              />
             </div>
+
             <div className="field">
               <label htmlFor="api-token">Token Bearer</label>
-              <input id="api-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="JWT de acceso" />
+              <input
+                id="api-token"
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="JWT de acceso"
+              />
             </div>
-            <p className="helper">El backend debe ejecutarse y aceptar el token emitido por el proveedor OAuth configurado.</p>
+
+            <p className="helper">
+              Se guarda automaticamente en localStorage para todas las vistas y pruebas.
+            </p>
+
             <div className="form-actions">
-              <button className="primary-button" type="button" onClick={() => setShowSettings(false)}>Guardar</button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setSettingsOpen(false)}
+              >
+                Listo
+              </button>
             </div>
-          </section>
+          </div>
         </div>
       )}
     </div>
