@@ -6,6 +6,7 @@ import {
   saveBackendUrl,
 } from "./config/backend";
 import { ClientesView } from "./views/ClientesView";
+import { EnviosView } from "./views/EnviosView";
 import { OperacionesView } from "./views/OperacionesView";
 
 interface ApiResponse {
@@ -25,7 +26,7 @@ interface BackendTestResult {
   response: string;
 }
 
-type ActiveTab = "clientes" | "operaciones" | "pruebas";
+type ActiveTab = "clientes" | "envios" | "operaciones" | "pruebas";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("clientes");
@@ -241,6 +242,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`nav-button ${activeTab === "envios" ? "active" : ""}`}
+              onClick={() => setActiveTab("envios")}
+            >
+              Envios
+            </button>
+            <button
+              type="button"
               className={`nav-button ${activeTab === "operaciones" ? "active" : ""}`}
               onClick={() => setActiveTab("operaciones")}
             >
@@ -268,6 +276,10 @@ export default function App() {
       <main className="content">
         {activeTab === "clientes" && (
           <ClientesView baseUrl={baseUrl} token={token} />
+        )}
+
+        {activeTab === "envios" && (
+          <EnviosView baseUrl={baseUrl} token={token} />
         )}
 
         {activeTab === "operaciones" && (

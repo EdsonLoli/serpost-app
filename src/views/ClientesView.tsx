@@ -16,44 +16,132 @@ interface Cliente {
   rol: string;
 }
 
-const EMPTY_CLIENTE: Cliente = {
+interface ClienteFormState {
+  tipo_documento: string;
+  numero_documento: string;
+  nombres: string;
+  apellidos: string;
+  direccion: string;
+  telefono: string;
+  correo: string;
+  rol: string;
+}
+
+const EMPTY_FORM: ClienteFormState = {
   tipo_documento: "DNI",
   numero_documento: "",
   nombres: "",
+  apellidos: "",
   direccion: "",
   telefono: "",
   correo: "",
   rol: "remitente",
 };
 
-function validarReglasCliente(c: Cliente): string[] {
+const BASURA_PATTERNS = [
+  /^(.)\1+$/i,
+  /qwerty/i,
+  /asdf/i,
+  /zxcv/i,
+  /123456/,
+  /abcdef/i,
+  /prueba/i,
+  /test/i,
+  /xxxx/i,
+  /aaaa/i,
+  /sin\s*nombre/i,
+  /no\s*tiene/i,
+];
+
+function esTextoBasura(valor: string): boolean {
+  const limpio = valor.trim().toLowerCase();
+  if (!limpio) return true;
+  if (BASURA_PATTERNS.some((rx) => rx.test(limpio))) return true;
+  const letras = limpio.replace(/[^a-zñáéíóú]/gi, "");
+  if (letras.length >= 5 && !/[aeiouáéíóú]/i.test(letras)) {
+    return true;
+  }
+  return false;
+}
+
+function esDireccionValida(dir: string): { ok: boolean; motivo?: string } {
+  const clean = dir.trim();
+  if (clean.length < 8 || clean.length > 20) {
+    return { ok: false, motivo: "Dirección: debe tener entre 8 y 20 caracteres." };
+  }
+  if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s]+$/.test(clean)) {
+    return {
+      ok: false,
+      motivo: "Dirección: solo formato alfanumérico y espacios (sin signos especiales).",
+    };
+  }
+  if (esTextoBasura(clean) || !/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/.test(clean)) {
+    return {
+      ok: false,
+      motivo: "Dirección: bloqueada por filtro antibasura (ingrese una dirección real).",
+    };
+  }
+  return { ok: true };
+}
+
+function validarReglasCliente(f: ClienteFormState): string[] {
   const errores: string[] = [];
-  if (!c.nombres.trim() || c.nombres.trim().length > 100) {
-    errores.push("Nombres: obligatorio y máximo 100 caracteres.");
+
+  const nom = f.nombres.trim();
+  const ape = f.apellidos.trim();
+
+  if (!nom || nom.length > 50 || !/^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s]+$/.test(nom) || esTextoBasura(nom)) {
+    errores.push("Nombres: obligatorio (máx. 50), solo letras y sin texto basura.");
   }
-  if (!c.direccion.trim() || c.direccion.trim().length > 150) {
-    errores.push("Dirección: obligatoria y máxima 150 caracteres.");
+  if (!ape || ape.length > 50 || !/^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s]+$/.test(ape) || esTextoBasura(ape)) {
+    errores.push("Apellidos: obligatorio (máx. 50), solo letras y sin texto basura.");
   }
-  if (!/^9\d{8}$/.test(c.telefono.trim())) {
+
+  const dirCheck = esDireccionValida(f.direccion);
+  if (!dirCheck.ok && dirCheck.motivo) {
+    errores.push(dirCheck.motivo);
+  }
+
+  if (!/^9\d{8}$/.test(f.telefono.trim())) {
     errores.push("Teléfono: debe tener exactamente 9 dígitos y empezar con 9.");
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.correo.trim()) || c.correo.length > 120) {
-    errores.push("Correo: formato inválido o supera 120 caracteres.");
+
+  const correo = f.correo.trim();
+  if (
+    !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(correo) ||
+    correo.length > 120
+  ) {
+    errores.push("Correo: formato inválido (ej. usuario@dominio.com) o supera 120 caracteres.");
   }
-  const doc = c.numero_documento.trim();
-  if (c.tipo_documento === "DNI" && !/^\d{8}$/.test(doc)) {
+
+  const doc = f.numero_documento.trim();
+  if (f.tipo_documento === "DNI" && !/^\d{8}$/.test(doc)) {
     errores.push("DNI: debe tener exactamente 8 dígitos.");
-  } else if (c.tipo_documento === "RUC" && !/^\d{11}$/.test(doc)) {
+  } else if (f.tipo_documento === "RUC" && !/^\d{11}$/.test(doc)) {
     errores.push("RUC: debe tener exactamente 11 dígitos.");
   } else if (!doc || doc.length > 20) {
     errores.push("Número de documento: obligatorio y máximo 20 caracteres.");
   }
+
   return errores;
+}
+
+function separarNombreCompleto(fullName: string): { nombres: string; apellidos: string } {
+  const partes = fullName.trim().split(/\s+/).filter(Boolean);
+  if (partes.length <= 1) {
+    return { nombres: fullName.trim(), apellidos: "" };
+  }
+  if (partes.length === 2) {
+    return { nombres: partes[0], apellidos: partes[1] };
+  }
+  const apellidos = partes.slice(-2).join(" ");
+  const nombres = partes.slice(0, -2).join(" ");
+  return { nombres, apellidos };
 }
 
 export function ClientesView({ baseUrl, token }: ClientesViewProps) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [form, setForm] = useState<Cliente>(EMPTY_CLIENTE);
+  const [form, setForm] = useState<ClienteFormState>(EMPTY_FORM);
   const [editId, setEditId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
@@ -84,10 +172,10 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
   }
 
   useEffect(() => {
-    cargarClientes();
+    void cargarClientes();
   }, [baseUrl]);
 
-  function handleChange(field: keyof Cliente, value: string) {
+  function handleChange(field: keyof ClienteFormState, value: string) {
     const next = { ...form, [field]: value };
     setForm(next);
     setRuleWarnings(validarReglasCliente(next));
@@ -105,6 +193,16 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
       return;
     }
 
+    const payload: Cliente = {
+      tipo_documento: form.tipo_documento.trim(),
+      numero_documento: form.numero_documento.trim(),
+      nombres: `${form.nombres.trim()} ${form.apellidos.trim()}`.trim(),
+      direccion: form.direccion.trim(),
+      telefono: form.telefono.trim(),
+      correo: form.correo.trim(),
+      rol: form.rol,
+    };
+
     setLoading(true);
     const isEdit = Boolean(editId);
     const res = await window.serpostApi.request({
@@ -112,7 +210,7 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
       token,
       path: isEdit ? `/clientes/${encodeURIComponent(editId!)}` : "/clientes",
       method: isEdit ? "PUT" : "POST",
-      body: form,
+      body: payload,
     });
     setLoading(false);
 
@@ -122,8 +220,9 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
           ? `Cliente actualizado (HTTP ${res.status}).`
           : `Cliente creado (HTTP ${res.status}).`
       );
-      setForm(EMPTY_CLIENTE);
+      setForm(EMPTY_FORM);
       setEditId(null);
+      setRuleWarnings([]);
       await cargarClientes();
     } else {
       setErrorMsg(`HTTP ${res.status}: ${res.error || "Error en la operación"}`);
@@ -152,17 +251,20 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
   }
 
   function startEdit(c: Cliente) {
-    setEditId(c.id || null);
-    setForm({
+    const { nombres, apellidos } = separarNombreCompleto(c.nombres || "");
+    const nextForm: ClienteFormState = {
       tipo_documento: c.tipo_documento || "DNI",
       numero_documento: c.numero_documento || "",
-      nombres: c.nombres || "",
+      nombres,
+      apellidos,
       direccion: c.direccion || "",
       telefono: c.telefono || "",
       correo: c.correo || "",
       rol: c.rol || "remitente",
-    });
-    setRuleWarnings(validarReglasCliente(c));
+    };
+    setEditId(c.id || null);
+    setForm(nextForm);
+    setRuleWarnings(validarReglasCliente(nextForm));
     setStatusMsg("");
     setErrorMsg("");
   }
@@ -174,15 +276,15 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
           <p className="eyebrow">Gestión CRUD + Reglas</p>
           <h1>Clientes ({clientes.length})</h1>
         </div>
-        <button className="primary-button" type="button" onClick={cargarClientes} disabled={loading}>
+        <button className="primary-button" type="button" onClick={() => void cargarClientes()} disabled={loading}>
           {loading ? "Cargando..." : "Actualizar lista (GET)"}
         </button>
       </div>
 
       {statusMsg && <div className="notice success">{statusMsg}</div>}
-      {errorMsg && <div className="notice error">{errorMsg}</div>}
+      {errorMsg && <div className="notice danger">{errorMsg}</div>}
 
-      <form className="grid-form" onSubmit={handleSubmit}>
+      <form className="grid-form" onSubmit={(e) => void handleSubmit(e)}>
         <label>
           Tipo documento
           <select value={form.tipo_documento} onChange={(e) => handleChange("tipo_documento", e.target.value)}>
@@ -202,12 +304,22 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
         </label>
 
         <label>
-          Nombres (máx 100)
+          Nombres (solo letras)
           <input
-            maxLength={120}
+            maxLength={50}
             value={form.nombres}
             onChange={(e) => handleChange("nombres", e.target.value)}
-            placeholder="Ana Pérez"
+            placeholder="Ana Maria"
+          />
+        </label>
+
+        <label>
+          Apellidos (solo letras)
+          <input
+            maxLength={50}
+            value={form.apellidos}
+            onChange={(e) => handleChange("apellidos", e.target.value)}
+            placeholder="Perez Quispe"
           />
         </label>
 
@@ -222,18 +334,19 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
         </label>
 
         <label>
-          Dirección (máx 150)
+          Dirección (8 a 20 car., alfanumérico)
           <input
-            maxLength={170}
+            maxLength={20}
             value={form.direccion}
             onChange={(e) => handleChange("direccion", e.target.value)}
-            placeholder="Av. Pacífico 123"
+            placeholder="Av Pacifico 123"
           />
         </label>
 
         <label>
-          Correo
+          Correo electrónico
           <input
+            type="email"
             value={form.correo}
             onChange={(e) => handleChange("correo", e.target.value)}
             placeholder="cliente@correo.com"
@@ -258,7 +371,8 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
               type="button"
               onClick={() => {
                 setEditId(null);
-                setForm(EMPTY_CLIENTE);
+                setForm(EMPTY_FORM);
+                setRuleWarnings([]);
               }}
             >
               Cancelar edición
@@ -291,8 +405,9 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
             <tr>
               <th>ID</th>
               <th>Documento</th>
-              <th>Nombres</th>
+              <th>Nombres y Apellidos</th>
               <th>Teléfono</th>
+              <th>Dirección</th>
               <th>Correo</th>
               <th>Rol</th>
               <th>Acciones</th>
@@ -301,7 +416,7 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
           <tbody>
             {clientes.length === 0 ? (
               <tr>
-                <td colSpan={7}>No hay clientes cargados o la lista está vacía.</td>
+                <td colSpan={8}>No hay clientes cargados o la lista está vacía.</td>
               </tr>
             ) : (
               clientes.map((c, idx) => (
@@ -310,11 +425,12 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
                   <td>{c.tipo_documento} {c.numero_documento}</td>
                   <td>{c.nombres}</td>
                   <td>{c.telefono}</td>
+                  <td>{c.direccion}</td>
                   <td>{c.correo}</td>
                   <td>{c.rol}</td>
                   <td className="actions-cell">
                     <button type="button" onClick={() => startEdit(c)}>Editar</button>
-                    <button type="button" className="danger-btn" onClick={() => handleDelete(c.id)}>
+                    <button type="button" className="danger-btn" onClick={() => void handleDelete(c.id)}>
                       Eliminar
                     </button>
                   </td>
