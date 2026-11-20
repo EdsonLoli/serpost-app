@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface TarifaViewProps {
   baseUrl: string;
@@ -8,65 +8,225 @@ interface TarifaViewProps {
 type TipoServicio = "ESTANDAR" | "EXPRESS" | "CARGO";
 type ZonaEnvio = "LOCAL" | "NACIONAL" | "EXTREMA";
 
+interface EnvioItem {
+  id?: string;
+  codigo?: string;
+  remitente?: string;
+  destinatario?: string;
+  origen?: string;
+  destino?: string;
+  peso_kg?: number;
+  contenido?: string;
+  descripcion?: string;
+  linea_negocio?: string;
+  estado?: string;
+  tarifa_total?: number;
+  ida_vuelta?: boolean;
+  servicio?: TipoServicio;
+  zona?: ZonaEnvio;
+}
+
+const TARIFA_BASE: Record<TipoServicio, number> = {
+  ESTANDAR: 10,
+  EXPRESS: 18,
+  CARGO: 25,
+};
+
+const COSTO_KG: Record<TipoServicio, number> = {
+  ESTANDAR: 3.5,
+  EXPRESS: 6.0,
+  CARGO: 4.5,
+};
+
+const MULT_ZONA: Record<ZonaEnvio, number> = {
+  LOCAL: 1.0,
+  NACIONAL: 1.25,
+  EXTREMA: 1.5,
+};
+
+function parseNum(val: string): number {
+  return Number(String(val).trim().replace(",", "."));
+}
+
+function esPendiente(env: EnvioItem): boolean {
+  const est = String(env.estado || "REGISTRADO").toUpperCase();
+  if (est === "ENTREGADO" || est === "RECHAZADO") return false;
+  return typeof env.tarifa_total !== "number" || est === "REGISTRADO" || est === "PENDIENTE";
+}
+
 export function TarifaView({ baseUrl, token }: TarifaViewProps) {
+  const [envios, setEnvios] = useState<EnvioItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("");
   const [pesoKg, setPesoKg] = useState("2.5");
   const [maxPesoKg, setMaxPesoKg] = useState("30");
   const [servicio, setServicio] = useState<TipoServicio>("ESTANDAR");
   const [zona, setZona] = useState<ZonaEnvio>("NACIONAL");
   const [destino, setDestino] = useState("Lima Cercado 101");
   const [incluirIgv, setIncluirIgv] = useState(true);
-  const [apiMsg, setApiMsg] = useState("");
+  const [idaYVuelta, setIdaYVuelta] = useState(false);
 
-  const pesoNormalizado = Number(String(pesoKg).replace(",", "."));
-  const maxNormalizado = Number(String(maxPesoKg).replace(",", "."));
+  const [loading, setLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const pesoValido =
-    !Number.isNaN(pesoNormalizado) &&
-    pesoNormalizado > 0 &&
-    (Number.isNaN(maxNormalizado) || maxNormalizado <= 0 || pesoNormalizado <= maxNormalizado);
+  async function cargarEnvios() {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      const res = await window.serpostApi.request({
+        baseUrl,
+        token,
+        path: "/envios",
+        method: "GET",
+      });
+      if (res.ok && Array.isArray(res.data)) {
+        const lista = res.data as EnvioItem[];
+        setEnvios(lista);
+        const pendientes = lista.filter(esPendiente);
+        if (pendientes.length > 0 && !selectedId) {
+          seleccionarEnvio(pendientes[0]);
+        }
+      } else if (res.status === 404) {
+        setEnvios([]);
+      } else {
+        setErrorMsg(res.error || `Error GET /envios (HTTP ${res.status})`);
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Error al cargar envíos");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const tarifaBaseMap: Record<TipoServicio, number> = {
-    ESTANDAR: 10,
-    EXPRESS: 18,
-    CARGO: 25,
-  };
+  useEffect(() => {
+    void cargarEnvios();
+  }, [baseUrl]);
 
-  const costoKgMap: Record<TipoServicio, number> = {
-    ESTANDAR: 3.5,
-    EXPRESS: 6.0,
-    CARGO: 4.5,
-  };
+  const enviosPendientes = useMemo(() => envios.filter(esPendiente), [envios]);
 
-  const multiplicadorZonaMap: Record<ZonaEnvio, number> = {
-    LOCAL: 1.0,
-    NACIONAL: 1.25,
-    EXTREMA: 1.5,
-  };
+  const envioSeleccionado = useMemo(
+    () => envios.find((e, idx) => (e.id || String(idx)) === selectedId) || null,
+    [envios, selectedId]
+  );
 
-  const subtotal = pesoValido
-    ? Number(
-        (
-          (tarifaBaseMap[servicio] + pesoNormalizado * costoKgMap[servicio]) *
-          multiplicadorZonaMap[zona]
-        ).toFixed(2)
-      )
-    : 0;
+  function seleccionarEnvio(env: EnvioItem) {
+    setSelectedId(env.id || "");
+    if (typeof env.peso_kg === "number" && env.peso_kg > 0) {
+      setPesoKg(String(env.peso_kg));
+    }
+    if (env.destino && env.destino.trim()) {
+      setDestino(env.destino.trim());
+    }
+    if (typeof env.ida_vuelta === "boolean") {
+      setIdaYVuelta(env.ida_vuelta);
+    }
+    setStatusMsg("");
+    setErrorMsg("");
+  }
 
-  const igv = incluirIgv ? Number((subtotal * 0.18).toFixed(2)) : 0;
-  const total = Number((subtotal + igv).toFixed(2));
+  const calculo = useMemo(() => {
+    const pesoNum = parseNum(pesoKg);
+    const maxNum = parseNum(maxPesoKg);
+    const valido =
+      !Number.isNaN(pesoNum) &&
+      pesoNum > 0 &&
+      (Number.isNaN(maxNum) || maxNum <= 0 || pesoNum <= maxNum);
 
-  async function consultarTarifaBackend() {
-    setApiMsg("");
+    if (!valido) {
+      return { valido: false, subtotal: 0, igv: 0, total: 0 };
+    }
+    const factorSentido = idaYVuelta ? 2 : 1;
+    const subtotal = Number(
+      (
+        (TARIFA_BASE[servicio] + pesoNum * COSTO_KG[servicio]) *
+        MULT_ZONA[zona] *
+        factorSentido
+      ).toFixed(2)
+    );
+    const igv = incluirIgv ? Number((subtotal * 0.18).toFixed(2)) : 0;
+    const total = Number((subtotal + igv).toFixed(2));
+    return { valido: true, subtotal, igv, total };
+  }, [pesoKg, maxPesoKg, servicio, zona, incluirIgv, idaYVuelta]);
+
+  async function aplicarTarifaAEnvio() {
+    setStatusMsg("");
+    setErrorMsg("");
+
+    if (!envioSeleccionado || !envioSeleccionado.id) {
+      setErrorMsg("Selecciona un envío con ID válido para aplicarle la tarifa.");
+      return;
+    }
+    if (!calculo.valido) {
+      setErrorMsg("Revisa el peso y el límite máximo antes de aplicar la tarifa.");
+      return;
+    }
+
+    const updatedPayload: EnvioItem = {
+      ...envioSeleccionado,
+      peso_kg: parseNum(pesoKg),
+      destino: destino.trim() || envioSeleccionado.destino,
+      servicio,
+      zona,
+      ida_vuelta: idaYVuelta,
+      tarifa_total: calculo.total,
+      estado: "COTIZADO",
+    };
+
+    setLoading(true);
     const res = await window.serpostApi.request({
       baseUrl,
       token,
-      path: `/tarifas?peso=${encodeURIComponent(String(pesoNormalizado))}&zona=${encodeURIComponent(zona)}&servicio=${encodeURIComponent(servicio)}`,
-      method: "GET",
+      path: `/envios/${encodeURIComponent(envioSeleccionado.id)}`,
+      method: "PUT",
+      body: updatedPayload,
     });
+    setLoading(false);
+
     if (res.ok) {
-      setApiMsg(`Backend respondió HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+      setStatusMsg(
+        `Tarifa S/ ${calculo.total.toFixed(2)} (${idaYVuelta ? "Ida y vuelta" : "Solo ida"}) aplicada a ${
+          envioSeleccionado.codigo || envioSeleccionado.id
+        } (COTIZADO).`
+      );
+      await cargarEnvios();
     } else {
-      setApiMsg(`Cálculo local aplicado (endpoint /tarifas devolvió HTTP ${res.status}).`);
+      setErrorMsg(`HTTP ${res.status}: ${res.error || "No se pudo aplicar la tarifa"}`);
+    }
+  }
+
+  async function regresarAPendiente(env: EnvioItem | null) {
+    setStatusMsg("");
+    setErrorMsg("");
+
+    if (!env || !env.id) {
+      setErrorMsg("Selecciona un envío con ID válido para regresarlo a pendiente.");
+      return;
+    }
+
+    const revertedPayload: EnvioItem = {
+      ...env,
+      estado: "REGISTRADO",
+      tarifa_total: undefined,
+      ida_vuelta: false,
+    };
+
+    setLoading(true);
+    const res = await window.serpostApi.request({
+      baseUrl,
+      token,
+      path: `/envios/${encodeURIComponent(env.id)}`,
+      method: "PUT",
+      body: revertedPayload,
+    });
+    setLoading(false);
+
+    if (res.ok) {
+      setStatusMsg(
+        `Envío ${env.codigo || env.id} regresado a estado REGISTRADO (pendiente).`
+      );
+      await cargarEnvios();
+    } else {
+      setErrorMsg(`HTTP ${res.status}: ${res.error || "No se pudo regresar a pendiente"}`);
     }
   }
 
@@ -74,15 +234,65 @@ export function TarifaView({ baseUrl, token }: TarifaViewProps) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Cotizador de Envíos y Reglas de Peso</p>
-          <h1>Calculadora de Tarifa</h1>
+          <p className="eyebrow">Cotizador, Ida/Vuelta y Reversión de Estado</p>
+          <h1>Calculadora de Tarifa ({enviosPendientes.length} pendientes)</h1>
         </div>
-        <button className="primary-button" type="button" onClick={() => void consultarTarifaBackend()}>
-          Consultar /tarifas (GET)
+        <button
+          className="primary-button"
+          type="button"
+          onClick={() => void cargarEnvios()}
+          disabled={loading}
+        >
+          {loading ? "Cargando..." : "Actualizar lista (GET)"}
         </button>
       </div>
 
-      {apiMsg && <div className="notice success">{apiMsg}</div>}
+      {statusMsg && <div className="notice success">{statusMsg}</div>}
+      {errorMsg && <div className="notice danger">{errorMsg}</div>}
+
+      <div className="rule-checker">
+        <strong>Selección y simulación de ambos lados:</strong>
+        <div className="grid-form">
+          <label>
+            Seleccionar envío (pendientes o cotizados)
+            <select
+              value={selectedId}
+              onChange={(e) => {
+                const found = envios.find((item) => (item.id || "") === e.target.value);
+                if (found) seleccionarEnvio(found);
+                else setSelectedId("");
+              }}
+            >
+              <option value="">-- Elegir envío ({envios.length} total / {enviosPendientes.length} pendientes) --</option>
+              {envios.map((item, idx) => (
+                <option key={item.id || idx} value={item.id || ""}>
+                  {(item.codigo || item.id || `ENV-${idx + 1}`)} · {item.peso_kg ?? "-"} kg ·{" "}
+                  {item.destino || "Sin destino"} [{item.estado || "REGISTRADO"}]
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="form-actions">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={loading || !envioSeleccionado?.id || !calculo.valido}
+              onClick={() => void aplicarTarifaAEnvio()}
+            >
+              Aplicar tarifa (PUT)
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={loading || !envioSeleccionado?.id}
+              onClick={() => void regresarAPendiente(envioSeleccionado)}
+            >
+              Regresar a pendiente
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="grid-form">
         <label>
@@ -136,6 +346,15 @@ export function TarifaView({ baseUrl, token }: TarifaViewProps) {
         <label className="checkbox-row">
           <input
             type="checkbox"
+            checked={idaYVuelta}
+            onChange={(e) => setIdaYVuelta(e.target.checked)}
+          />
+          Simular ida y vuelta (ambos lados x2)
+        </label>
+
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
             checked={incluirIgv}
             onChange={(e) => setIncluirIgv(e.target.checked)}
           />
@@ -146,13 +365,60 @@ export function TarifaView({ baseUrl, token }: TarifaViewProps) {
       <div className="rule-checker">
         <strong>Resultado del cálculo:</strong>
         <div className="inline-inputs">
-          <span className={pesoValido ? "badge ok" : "badge err"}>
-            {pesoValido ? "Peso válido" : "Peso inválido o excede límite"}
+          <span className={calculo.valido ? "badge ok" : "badge err"}>
+            {calculo.valido ? "Peso válido" : "Peso inválido o excede límite"}
           </span>
-          <span>Subtotal: <strong>S/ {subtotal.toFixed(2)}</strong></span>
-          <span>IGV: <strong>S/ {igv.toFixed(2)}</strong></span>
-          <span>Total estimado: <strong>S/ {total.toFixed(2)}</strong></span>
+          <span>Sentido: <strong>{idaYVuelta ? "Ida y vuelta (x2)" : "Solo ida (x1)"}</strong></span>
+          <span>Subtotal: <strong>S/ {calculo.subtotal.toFixed(2)}</strong></span>
+          <span>IGV: <strong>S/ {calculo.igv.toFixed(2)}</strong></span>
+          <span>Total estimado: <strong>S/ {calculo.total.toFixed(2)}</strong></span>
         </div>
+      </div>
+
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Código</th>
+              <th>Destino</th>
+              <th>Peso</th>
+              <th>Estado</th>
+              <th>Tarifa</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {envios.length === 0 ? (
+              <tr>
+                <td colSpan={6}>No hay envíos registrados.</td>
+              </tr>
+            ) : (
+              envios.map((item, idx) => (
+                <tr key={item.id || idx}>
+                  <td className="mono">{item.codigo || item.id || "-"}</td>
+                  <td>{item.destino || "-"}</td>
+                  <td>{item.peso_kg ?? "-"} kg</td>
+                  <td>{item.estado || "REGISTRADO"}</td>
+                  <td>
+                    {typeof item.tarifa_total === "number"
+                      ? `S/ ${item.tarifa_total.toFixed(2)}`
+                      : "Pendiente"}
+                  </td>
+                  <td className="actions-cell">
+                    <button type="button" onClick={() => seleccionarEnvio(item)}>
+                      Cargar
+                    </button>
+                    {item.id && (
+                      <button type="button" onClick={() => void regresarAPendiente(item)}>
+                        Regresar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </section>
   );

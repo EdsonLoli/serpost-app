@@ -69,10 +69,10 @@ function esDireccionValida(dir: string): { ok: boolean; motivo?: string } {
   if (clean.length < 8 || clean.length > 20) {
     return { ok: false, motivo: "Dirección: debe tener entre 8 y 20 caracteres." };
   }
-  if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s]+$/.test(clean)) {
+  if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s.,#°/-]+$/.test(clean)) {
     return {
       ok: false,
-      motivo: "Dirección: solo formato alfanumérico y espacios (sin signos especiales).",
+      motivo: "Dirección: contiene caracteres no permitidos.",
     };
   }
   if (esTextoBasura(clean) || !/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/.test(clean)) {

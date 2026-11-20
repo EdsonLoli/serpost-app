@@ -6,6 +6,7 @@ interface EnviosViewProps {
 }
 
 type EstadoEnvio = "REGISTRADO" | "EN_TRANSITO" | "ENTREGADO" | "RECHAZADO";
+type LineaNegocio = "Personal" | "Empresarial" | "Encomienda" | "Filatelia";
 
 interface ClienteItem {
   id?: string;
@@ -20,31 +21,53 @@ interface ClienteItem {
 interface Envio {
   id?: string;
   codigo: string;
-  remitente: string;
-  destinatario: string;
+  id_remitente?: string;
+  id_destinatario?: string;
+  remitente?: string;
+  destinatario?: string;
+  origen?: string;
   destino: string;
   peso_kg: number;
-  descripcion: string;
+  contenido?: string;
+  descripcion?: string;
+  linea_negocio?: LineaNegocio;
   estado?: EstadoEnvio | string;
   simulacion_log?: string;
 }
 
 interface EnvioFormState {
   codigo: string;
+  id_remitente: string;
   remitente: string;
+  id_destinatario: string;
   destinatario: string;
+  origen: string;
   destino: string;
   peso_kg: string;
-  descripcion: string;
+  contenido: string;
+  linea_negocio: LineaNegocio;
+}
+
+function generarCodigoAleatorio(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let bloque = "";
+  for (let i = 0; i < 8; i++) {
+    bloque += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `ENV-${bloque}`;
 }
 
 const EMPTY_ENVIO: EnvioFormState = {
-  codigo: "",
+  codigo: generarCodigoAleatorio(),
+  id_remitente: "",
   remitente: "",
+  id_destinatario: "",
   destinatario: "",
+  origen: "Lima Centro 100",
   destino: "",
   peso_kg: "1.5",
-  descripcion: "",
+  contenido: "",
+  linea_negocio: "Encomienda",
 };
 
 const BASURA_PATTERNS = [
@@ -78,8 +101,9 @@ const PROHIBIDOS_BASE = [
 ];
 
 const FLUJO_ESTADOS: EstadoEnvio[] = ["REGISTRADO", "EN_TRANSITO", "ENTREGADO"];
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parsePeso(val: string): number {
+function parseNum(val: string): number {
   return Number(String(val).trim().replace(",", "."));
 }
 
@@ -94,16 +118,32 @@ function esTextoBasura(texto: string): boolean {
   return false;
 }
 
+function validarDireccion8a20(dir: string, etiqueta: string): string | null {
+  const clean = dir.trim();
+  if (clean.length < 8 || clean.length > 20) {
+    return `${etiqueta}: debe tener entre 8 y 20 caracteres.`;
+  }
+  if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s.,#°/-]+$/.test(clean)) {
+    return `${etiqueta}: contiene caracteres no permitidos.`;
+  }
+  if (esTextoBasura(clean) || !/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/.test(clean)) {
+    return `${etiqueta}: bloqueada por filtro antibasura.`;
+  }
+  return null;
+}
+
 export function EnviosView({ baseUrl, token }: EnviosViewProps) {
   const [envios, setEnvios] = useState<Envio[]>([]);
   const [clientes, setClientes] = useState<ClienteItem[]>([]);
   const [buscarRemitente, setBuscarRemitente] = useState("");
   const [buscarDestinatario, setBuscarDestinatario] = useState("");
   const [prohibidos, setProhibidos] = useState<string[]>(PROHIBIDOS_BASE);
+
   const [form, setForm] = useState<EnvioFormState>(EMPTY_ENVIO);
   const [maxPesoKg, setMaxPesoKg] = useState("30");
   const [forzarEnvio, setForzarEnvio] = useState(false);
-  const [simulacionEstado, setSimulacionEstado] = useState<string>("");
+
+  const [simulacionEstado, setSimulacionEstado] = useState("");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -145,7 +185,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         setClientes(res.data);
       }
     } catch {
-      // Ignora si no hay clientes cargados aún
+      // Sin bloqueo si falla
     }
   }
 
@@ -211,42 +251,37 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
 
     const cod = data.codigo.trim();
     if (cod.length < 4 || cod.length > 25 || !/^[a-zA-Z0-9-]+$/.test(cod)) {
-      errs.push("Código: 4 a 25 caracteres alfanuméricos o guion (ej. ENV-001).");
+      errs.push("Código: 4 a 25 caracteres alfanuméricos o guion.");
     }
 
-    const rem = data.remitente.trim();
-    if (!rem || rem.length < 3 || esTextoBasura(rem)) {
-      errs.push("Remitente: obligatorio y válido (sin texto basura).");
+    if (!data.id_remitente.trim() || !UUID_RX.test(data.id_remitente.trim())) {
+      errs.push("Remitente: selecciona un cliente con UUID válido.");
     }
 
-    const destCliente = data.destinatario.trim();
-    if (!destCliente || destCliente.length < 3 || esTextoBasura(destCliente)) {
-      errs.push("Destinatario: obligatorio y válido (sin texto basura).");
+    if (!data.id_destinatario.trim() || !UUID_RX.test(data.id_destinatario.trim())) {
+      errs.push("Destinatario: selecciona un cliente con UUID válido.");
     }
 
-    const dir = data.destino.trim();
-    if (dir.length < 8 || dir.length > 20) {
-      errs.push("Dirección destino: debe tener entre 8 y 20 caracteres.");
-    } else if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s]+$/.test(dir)) {
-      errs.push("Dirección destino: solo formato alfanumérico y espacios (sin signos especiales).");
-    } else if (esTextoBasura(dir) || !/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/.test(dir)) {
-      errs.push("Dirección destino: bloqueada por filtro antibasura.");
-    }
+    const errOrigen = validarDireccion8a20(data.origen, "Origen");
+    if (errOrigen) errs.push(errOrigen);
 
-    const peso = parsePeso(data.peso_kg);
-    const maxP = parsePeso(limite);
+    const errDestino = validarDireccion8a20(data.destino, "Destino");
+    if (errDestino) errs.push(errDestino);
+
+    const peso = parseNum(data.peso_kg);
+    const maxP = parseNum(limite);
     if (Number.isNaN(peso) || peso <= 0) {
       errs.push("Peso (kg): debe ser mayor que 0.");
     } else if (!Number.isNaN(maxP) && maxP > 0 && peso > maxP) {
       errs.push(`Peso (kg): excede el límite máximo de ${maxP} kg.`);
     }
 
-    const desc = data.descripcion.trim();
-    const descLower = desc.toLowerCase();
-    if (!desc || desc.length < 3 || esTextoBasura(desc)) {
-      errs.push("Contenido/descripción: obligatorio y sin texto basura.");
+    const cont = data.contenido.trim();
+    const contLower = cont.toLowerCase();
+    if (!cont || cont.length < 3 || esTextoBasura(cont)) {
+      errs.push("Contenido: obligatorio y sin texto basura.");
     } else {
-      const prohibido = prohibidos.find((palabra) => descLower.includes(palabra));
+      const prohibido = prohibidos.find((palabra) => contLower.includes(palabra));
       if (prohibido) {
         errs.push(`Contenido prohibido: se detectó "${prohibido}".`);
       }
@@ -255,7 +290,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
     return errs;
   }
 
-  function handleChange(field: keyof EnvioFormState, value: string) {
+  function handleChange<K extends keyof EnvioFormState>(field: K, value: EnvioFormState[K]) {
     const next = { ...form, [field]: value };
     setForm(next);
     setWarnings(validarReglasEnvio(next, maxPesoKg));
@@ -263,16 +298,27 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
 
   function seleccionarRemitente(cliente: ClienteItem) {
     const nombre = (cliente.nombres || "").trim();
-    if (!nombre) return;
-    handleChange("remitente", nombre);
+    const idCli = (cliente.id || "").trim();
+    const next: EnvioFormState = {
+      ...form,
+      id_remitente: idCli,
+      remitente: nombre,
+      origen:
+        cliente.direccion && cliente.direccion.trim().length >= 8
+          ? cliente.direccion.trim().slice(0, 20)
+          : form.origen,
+    };
+    setForm(next);
     setBuscarRemitente(nombre);
+    setWarnings(validarReglasEnvio(next, maxPesoKg));
   }
 
   function seleccionarDestinatario(cliente: ClienteItem) {
     const nombre = (cliente.nombres || "").trim();
-    if (!nombre) return;
+    const idCli = (cliente.id || "").trim();
     const next: EnvioFormState = {
       ...form,
+      id_destinatario: idCli,
       destinatario: nombre,
       destino:
         cliente.direccion && cliente.direccion.trim().length >= 8
@@ -300,23 +346,28 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
       return;
     }
 
-    const pesoNum = parsePeso(form.peso_kg);
-    const maxNum = parsePeso(maxPesoKg);
+    const pesoNum = parseNum(form.peso_kg);
+    const maxNum = parseNum(maxPesoKg);
     const tarifaEstimada = Number.isNaN(pesoNum)
       ? 10
       : Math.max(10, Math.round((10 + pesoNum * 3.5) * 100) / 100);
 
     const payload: Envio = {
       codigo: form.codigo.trim().toUpperCase(),
+      id_remitente: form.id_remitente.trim(),
+      id_destinatario: form.id_destinatario.trim(),
       remitente: form.remitente.trim(),
       destinatario: form.destinatario.trim(),
+      origen: form.origen.trim(),
       destino: form.destino.trim(),
       peso_kg: pesoNum,
-      descripcion: form.descripcion.trim(),
+      contenido: form.contenido.trim(),
+      descripcion: form.contenido.trim(),
+      linea_negocio: form.linea_negocio,
       estado: errs.length > 0 ? "RECHAZADO" : modoSimulacion ? "EN_TRANSITO" : "REGISTRADO",
       simulacion_log: modoSimulacion
-        ? `Despachado a ${form.destino.trim()} (${pesoNum} kg / máx ${maxNum || 30} kg) - Tarifa sim. S/ ${tarifaEstimada}`
-        : "Registrado en agencia",
+        ? `Despachado a ${form.destino.trim()} (${pesoNum} kg / máx ${maxNum || 30} kg) · Tarifa S/ ${tarifaEstimada.toFixed(2)}`
+        : `Registrado (${form.linea_negocio})`,
     };
 
     setLoading(true);
@@ -332,7 +383,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
     if (res.ok) {
       setStatusMsg(
         modoSimulacion
-          ? `Paquete simulado y enviado (HTTP ${res.status}) · Tarifa estimada S/ ${tarifaEstimada}.`
+          ? `Paquete simulado y enviado (HTTP ${res.status}) · Tarifa S/ ${tarifaEstimada.toFixed(2)}.`
           : `Envío registrado (HTTP ${res.status}).`
       );
       if (modoSimulacion) {
@@ -340,7 +391,10 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
           `SIMULACIÓN EXITOSA: ${payload.codigo} -> ${payload.estado} (${payload.destino}, ${payload.peso_kg} kg).`
         );
       }
-      setForm(EMPTY_ENVIO);
+      setForm({
+        ...EMPTY_ENVIO,
+        codigo: generarCodigoAleatorio(),
+      });
       setBuscarRemitente("");
       setBuscarDestinatario("");
       setWarnings([]);
@@ -410,7 +464,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
           <h1>Envíos y Simulador ({envios.length})</h1>
         </div>
         <button className="primary-button" type="button" onClick={() => void cargarEnvios()} disabled={loading}>
-          {loading ? "Cargando..." : "Actualizar envíos (GET)"}
+          {loading ? "Cargando..." : "Actualizar lista (GET)"}
         </button>
       </div>
 
@@ -432,61 +486,60 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
               }}
             />
           </label>
-          <span className="badge ok">
-            Prohibidos activos: {prohibidos.length} términos
-          </span>
-          <span className="badge ok">
-            Clientes cargados: {clientes.length}
-          </span>
+          <span className="badge ok">Prohibidos activos: {prohibidos.length} términos</span>
+          <span className="badge ok">Clientes cargados: {clientes.length}</span>
         </div>
       </div>
 
-      <div className="grid-form">
-        <label>
-          Buscador de remitente (nombre o DNI/RUC)
-          <input
-            value={buscarRemitente}
-            onChange={(e) => setBuscarRemitente(e.target.value)}
-            placeholder="Buscar remitente..."
-          />
-          <select
-            value=""
-            onChange={(e) => {
-              const found = clientes.find((c, idx) => (c.id || String(idx)) === e.target.value);
-              if (found) seleccionarRemitente(found);
-            }}
-          >
-            <option value="">-- Seleccionar remitente ({remitentesFiltrados.length}) --</option>
-            {remitentesFiltrados.map((c, idx) => (
-              <option key={c.id || idx} value={c.id || String(idx)}>
-                {c.nombres} ({c.tipo_documento || "DOC"} {c.numero_documento || "-"})
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="rule-checker">
+        <strong>Buscador de remitente y destinatario:</strong>
+        <div className="grid-form">
+          <label>
+            Buscar remitente (nombre, DNI/RUC o UUID)
+            <input
+              value={buscarRemitente}
+              onChange={(e) => setBuscarRemitente(e.target.value)}
+              placeholder="Buscar remitente..."
+            />
+            <select
+              value={form.id_remitente}
+              onChange={(e) => {
+                const found = clientes.find((c) => (c.id || "") === e.target.value);
+                if (found) seleccionarRemitente(found);
+              }}
+            >
+              <option value="">-- Seleccionar remitente ({remitentesFiltrados.length}) --</option>
+              {remitentesFiltrados.map((c, idx) => (
+                <option key={c.id || idx} value={c.id || ""}>
+                  {c.nombres} ({c.numero_documento || "DOC"}) {c.id ? `[${c.id.slice(0, 8)}]` : "[sin UUID]"}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label>
-          Buscador de destinatario (nombre o DNI/RUC)
-          <input
-            value={buscarDestinatario}
-            onChange={(e) => setBuscarDestinatario(e.target.value)}
-            placeholder="Buscar destinatario..."
-          />
-          <select
-            value=""
-            onChange={(e) => {
-              const found = clientes.find((c, idx) => (c.id || String(idx)) === e.target.value);
-              if (found) seleccionarDestinatario(found);
-            }}
-          >
-            <option value="">-- Seleccionar destinatario ({destinatariosFiltrados.length}) --</option>
-            {destinatariosFiltrados.map((c, idx) => (
-              <option key={c.id || idx} value={c.id || String(idx)}>
-                {c.nombres} ({c.tipo_documento || "DOC"} {c.numero_documento || "-"})
-              </option>
-            ))}
-          </select>
-        </label>
+          <label>
+            Buscar destinatario (nombre, DNI/RUC o UUID)
+            <input
+              value={buscarDestinatario}
+              onChange={(e) => setBuscarDestinatario(e.target.value)}
+              placeholder="Buscar destinatario..."
+            />
+            <select
+              value={form.id_destinatario}
+              onChange={(e) => {
+                const found = clientes.find((c) => (c.id || "") === e.target.value);
+                if (found) seleccionarDestinatario(found);
+              }}
+            >
+              <option value="">-- Seleccionar destinatario ({destinatariosFiltrados.length}) --</option>
+              {destinatariosFiltrados.map((c, idx) => (
+                <option key={c.id || idx} value={c.id || ""}>
+                  {c.nombres} ({c.numero_documento || "DOC"}) {c.id ? `[${c.id.slice(0, 8)}]` : "[sin UUID]"}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <form
@@ -497,29 +550,61 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         }}
       >
         <label>
-          Código de paquete
+          Código de paquete (aleatorio)
+          <div className="inline-inputs">
+            <input
+              value={form.codigo}
+              onChange={(e) => handleChange("codigo", e.target.value)}
+              placeholder="ENV-XXXXXXXX"
+            />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => handleChange("codigo", generarCodigoAleatorio())}
+            >
+              Aleatorio
+            </button>
+          </div>
+        </label>
+
+        <label>
+          Línea de negocio
+          <select
+            value={form.linea_negocio}
+            onChange={(e) => handleChange("linea_negocio", e.target.value as LineaNegocio)}
+          >
+            <option value="Personal">Personal</option>
+            <option value="Empresarial">Empresarial</option>
+            <option value="Encomienda">Encomienda</option>
+            <option value="Filatelia">Filatelia</option>
+          </select>
+        </label>
+
+        <label>
+          UUID Remitente
           <input
-            value={form.codigo}
-            onChange={(e) => handleChange("codigo", e.target.value)}
-            placeholder="ENV-2026-001"
+            value={form.id_remitente}
+            onChange={(e) => handleChange("id_remitente", e.target.value)}
+            placeholder="UUID del remitente"
           />
         </label>
 
         <label>
-          Remitente
+          UUID Destinatario
           <input
-            value={form.remitente}
-            onChange={(e) => handleChange("remitente", e.target.value)}
-            placeholder="Ana Perez Quispe"
+            value={form.id_destinatario}
+            onChange={(e) => handleChange("id_destinatario", e.target.value)}
+            placeholder="UUID del destinatario"
           />
         </label>
 
         <label>
-          Destinatario
+          Origen (8 a 20 car., alfanumérico)
           <input
-            value={form.destinatario}
-            onChange={(e) => handleChange("destinatario", e.target.value)}
-            placeholder="Carlos Ramos Diaz"
+            maxLength={20}
+            value={form.origen}
+            onChange={(e) => handleChange("origen", e.target.value)}
+            placeholder="Lima Centro 100"
           />
         </label>
 
@@ -529,7 +614,7 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
             maxLength={20}
             value={form.destino}
             onChange={(e) => handleChange("destino", e.target.value)}
-            placeholder="Jr Leon Prado 450"
+            placeholder="Av 124 Laureles B"
           />
         </label>
 
@@ -546,8 +631,8 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
         <label>
           Contenido / Descripción
           <input
-            value={form.descripcion}
-            onChange={(e) => handleChange("descripcion", e.target.value)}
+            value={form.contenido}
+            onChange={(e) => handleChange("contenido", e.target.value)}
             placeholder="Libros y documentos"
           />
         </label>
@@ -590,8 +675,8 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
           <thead>
             <tr>
               <th>Código</th>
-              <th>Remitente</th>
-              <th>Destinatario</th>
+              <th>Línea</th>
+              <th>Origen</th>
               <th>Destino</th>
               <th>Peso</th>
               <th>Contenido</th>
@@ -608,11 +693,11 @@ export function EnviosView({ baseUrl, token }: EnviosViewProps) {
               envios.map((item, idx) => (
                 <tr key={item.id || idx}>
                   <td className="mono">{item.codigo || item.id || "-"}</td>
-                  <td>{item.remitente}</td>
-                  <td>{item.destinatario}</td>
+                  <td>{item.linea_negocio || "-"}</td>
+                  <td>{item.origen || "-"}</td>
                   <td>{item.destino}</td>
                   <td>{item.peso_kg} kg</td>
-                  <td>{item.descripcion}</td>
+                  <td>{item.contenido || item.descripcion || "-"}</td>
                   <td>{item.estado || "REGISTRADO"}</td>
                   <td className="actions-cell">
                     {item.id && (
