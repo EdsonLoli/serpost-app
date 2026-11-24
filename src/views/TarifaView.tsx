@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import type { DatosCotizacion } from "../components/BoletaDoc";
 
 interface TarifaViewProps {
   baseUrl: string;
   token: string;
+  onTarifaGenerada?: (cotizacion: DatosCotizacion) => void;
 }
 
 type TipoServicio = "ESTANDAR" | "EXPRESS" | "CARGO";
@@ -11,6 +13,8 @@ type ZonaEnvio = "LOCAL" | "NACIONAL" | "EXTREMA";
 interface EnvioItem {
   id?: string;
   codigo?: string;
+  id_remitente?: string;
+  id_destinatario?: string;
   remitente?: string;
   destinatario?: string;
   origen?: string;
@@ -54,7 +58,7 @@ function esPendiente(env: EnvioItem): boolean {
   return typeof env.tarifa_total !== "number" || est === "REGISTRADO" || est === "PENDIENTE";
 }
 
-export function TarifaView({ baseUrl, token }: TarifaViewProps) {
+export function TarifaView({ baseUrl, token, onTarifaGenerada }: TarifaViewProps) {
   const [envios, setEnvios] = useState<EnvioItem[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [pesoKg, setPesoKg] = useState("2.5");
@@ -183,10 +187,32 @@ export function TarifaView({ baseUrl, token }: TarifaViewProps) {
     setLoading(false);
 
     if (res.ok) {
+      const idBase = String(envioSeleccionado.codigo || envioSeleccionado.id);
+      const idCorto = idBase.replace(/-/g, "").slice(0, 8).toUpperCase() || "000001";
+
+      onTarifaGenerada?.({
+        codigoEnvio: envioSeleccionado.id,
+        numeroBoleta: `BOL-${idCorto}`,
+        codigoGuia: `GUI-${idCorto}`,
+        fecha: new Date().toLocaleDateString("es-PE"),
+        cliente: String(
+          envioSeleccionado.remitente || envioSeleccionado.id_remitente || "Cliente registrado"
+        ),
+        documento: String(
+          envioSeleccionado.destinatario || envioSeleccionado.id_destinatario || "-"
+        ),
+        origen: String(envioSeleccionado.origen || ""),
+        destino: String(destino.trim() || envioSeleccionado.destino || ""),
+        pesoKg: parseNum(pesoKg),
+        lineaNegocio: String(envioSeleccionado.linea_negocio || servicio),
+        idaYVuelta,
+        subtotal: calculo.subtotal,
+        igv: calculo.igv,
+        total: calculo.total,
+      });
+
       setStatusMsg(
-        `Tarifa S/ ${calculo.total.toFixed(2)} (${idaYVuelta ? "Ida y vuelta" : "Solo ida"}) aplicada a ${
-          envioSeleccionado.codigo || envioSeleccionado.id
-        } (COTIZADO).`
+        `Tarifa S/ ${calculo.total.toFixed(2)} (${idaYVuelta ? "Ida y vuelta" : "Solo ida"}) aplicada a ${idBase} (COTIZADO).`
       );
       await cargarEnvios();
     } else {

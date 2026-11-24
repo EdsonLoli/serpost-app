@@ -5,6 +5,8 @@ import {
   saveBackendToken,
   saveBackendUrl,
 } from "./config/backend";
+import { BoletaDoc, type DatosCotizacion } from "./components/BoletaDoc";
+import { GuiaSeguimientoDoc } from "./components/GuiaSeguimientoDoc";
 import { ClientesView } from "./views/ClientesView";
 import { EnviosView } from "./views/EnviosView";
 import { OperacionesView } from "./views/OperacionesView";
@@ -27,7 +29,14 @@ interface BackendTestResult {
   response: string;
 }
 
-type ActiveTab = "clientes" | "envios" | "tarifa" | "operaciones" | "pruebas";
+type ActiveTab =
+  | "clientes"
+  | "envios"
+  | "tarifa"
+  | "boleta"
+  | "guia"
+  | "operaciones"
+  | "pruebas";
 
 function generarUuidAleatorio(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -52,6 +61,10 @@ export default function App() {
   const [baseUrl, setBaseUrl] = useState<string>(() => getSavedBackendUrl());
   const [token, setToken] = useState<string>(() => getSavedToken());
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
+
+  // Estado compartido para Boleta y Guía
+  const [cotizacionActual, setCotizacionActual] = useState<DatosCotizacion | null>(null);
+  const [guiaHabilitada, setGuiaHabilitada] = useState<boolean>(false);
 
   const [testsRunning, setTestsRunning] = useState<boolean>(false);
   const [testResults, setTestResults] = useState<BackendTestResult[]>([]);
@@ -278,6 +291,20 @@ export default function App() {
             </button>
             <button
               type="button"
+              className={`nav-button ${activeTab === "boleta" ? "active" : ""}`}
+              onClick={() => setActiveTab("boleta")}
+            >
+              Boleta
+            </button>
+            <button
+              type="button"
+              className={`nav-button ${activeTab === "guia" ? "active" : ""}`}
+              onClick={() => setActiveTab("guia")}
+            >
+              Guia
+            </button>
+            <button
+              type="button"
               className={`nav-button ${activeTab === "operaciones" ? "active" : ""}`}
               onClick={() => setActiveTab("operaciones")}
             >
@@ -312,7 +339,67 @@ export default function App() {
         )}
 
         {activeTab === "tarifa" && (
-          <TarifaView baseUrl={baseUrl} token={token} />
+          <TarifaView
+            baseUrl={baseUrl}
+            token={token}
+            onTarifaGenerada={(cotizacion) => {
+              setCotizacionActual(cotizacion);
+              setGuiaHabilitada(false);
+              setActiveTab("boleta");
+            }}
+          />
+        )}
+
+        {activeTab === "boleta" && (
+          cotizacionActual ? (
+            <BoletaDoc
+              cotizacion={cotizacionActual}
+              onContinuarAGuia={() => {
+                setGuiaHabilitada(true);
+                setActiveTab("guia");
+              }}
+            />
+          ) : (
+            <section className="panel">
+              <h2>Boleta</h2>
+              <p className="helper">
+                Primero calcula una tarifa en la pestaña <strong>Tarifa</strong> para generar la boleta.
+              </p>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setActiveTab("tarifa")}
+              >
+                Ir a Tarifa
+              </button>
+            </section>
+          )
+        )}
+
+        {activeTab === "guia" && (
+          cotizacionActual && guiaHabilitada ? (
+            <GuiaSeguimientoDoc
+              cotizacion={cotizacionActual}
+              baseUrl={baseUrl}
+              token={token}
+            />
+          ) : (
+            <section className="panel">
+              <h2>Guía de Seguimiento</h2>
+              <p className="helper">
+                {cotizacionActual
+                  ? "Revisa primero la Boleta y presiona 'Continuar a Guía'."
+                  : "Primero calcula una tarifa y revisa la boleta para emitir la guía."}
+              </p>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => setActiveTab(cotizacionActual ? "boleta" : "tarifa")}
+              >
+                {cotizacionActual ? "Ir a Boleta" : "Ir a Tarifa"}
+              </button>
+            </section>
+          )
         )}
 
         {activeTab === "operaciones" && (
