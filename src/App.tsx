@@ -376,12 +376,13 @@ export default function App() {
           )
         )}
 
-        {activeTab === "guia" && (
+          {activeTab === "guia" && (
           cotizacionActual && guiaHabilitada ? (
             <GuiaSeguimientoDoc
               cotizacion={cotizacionActual}
               baseUrl={baseUrl}
               token={token}
+              onVolverABoleta={() => setActiveTab("boleta")}
             />
           ) : (
             <section className="panel">

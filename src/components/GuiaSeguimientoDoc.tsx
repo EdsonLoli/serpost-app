@@ -7,13 +7,14 @@ interface EventoSeguimiento {
   estado: EstadoGuia;
   ubicacion: string;
   detalle: string;
-  hora: string;
+  fechaHora: string;
 }
 
 interface GuiaSeguimientoDocProps {
   cotizacion: DatosCotizacion;
   baseUrl?: string;
   token?: string;
+  onVolverABoleta?: () => void;
 }
 
 const SECUENCIA_SIMULACION: {
@@ -43,10 +44,22 @@ const SECUENCIA_SIMULACION: {
   },
 ];
 
+function formatearFechaHora(date = new Date()): string {
+  return date.toLocaleString("es-PE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export function GuiaSeguimientoDoc({
   cotizacion,
   baseUrl,
   token,
+  onVolverABoleta,
 }: GuiaSeguimientoDocProps) {
   const [pasoIdx, setPasoIdx] = useState(0);
   const [simulando, setSimulando] = useState(false);
@@ -54,22 +67,24 @@ export function GuiaSeguimientoDoc({
     {
       ...SECUENCIA_SIMULACION[0],
       ubicacion: cotizacion.origen || SECUENCIA_SIMULACION[0].ubicacion,
-      hora: new Date().toLocaleTimeString(),
+      fechaHora: formatearFechaHora(),
     },
   ]);
 
+  const ultimoPasoIdx = SECUENCIA_SIMULACION.length - 1;
   const estadoActual = SECUENCIA_SIMULACION[pasoIdx].estado;
+  const estaEntregado = pasoIdx >= ultimoPasoIdx || estadoActual === "ENTREGADO";
 
   async function simularSiguientePaso() {
+    if (estaEntregado || simulando) return;
+
     setSimulando(true);
-    const nextIdx = (pasoIdx + 1) % SECUENCIA_SIMULACION.length;
+    const nextIdx = Math.min(pasoIdx + 1, ultimoPasoIdx);
     const paso = SECUENCIA_SIMULACION[nextIdx];
     const ubicacionFinal =
-      nextIdx === 0
-        ? cotizacion.origen
-        : nextIdx === SECUENCIA_SIMULACION.length - 1
-          ? cotizacion.destino
-          : paso.ubicacion;
+      nextIdx === ultimoPasoIdx
+        ? cotizacion.destino || paso.ubicacion
+        : paso.ubicacion;
 
     if (baseUrl && window.serpostApi?.request) {
       try {
@@ -81,7 +96,7 @@ export function GuiaSeguimientoDoc({
           body: { estado: paso.estado },
         });
       } catch {
-        // Si el backend local no expone PUT /envios/:codigo, la simulación local sigue funcionando
+        // Si el backend no responde al PUT, continúa la simulación local
       }
     }
 
@@ -91,11 +106,22 @@ export function GuiaSeguimientoDoc({
         estado: paso.estado,
         ubicacion: ubicacionFinal,
         detalle: paso.detalle,
-        hora: new Date().toLocaleTimeString(),
+        fechaHora: formatearFechaHora(),
       },
       ...prev,
     ]);
     setSimulando(false);
+  }
+
+  function reiniciarSimulacion() {
+    setPasoIdx(0);
+    setHistorial([
+      {
+        ...SECUENCIA_SIMULACION[0],
+        ubicacion: cotizacion.origen || SECUENCIA_SIMULACION[0].ubicacion,
+        fechaHora: formatearFechaHora(),
+      },
+    ]);
   }
 
   return (
@@ -107,15 +133,37 @@ export function GuiaSeguimientoDoc({
         </div>
 
         <div className="inline-inputs">
+          {onVolverABoleta && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onVolverABoleta}
+            >
+              Volver a Boleta
+            </button>
+          )}
           <span className="badge ok">{estadoActual}</span>
           <button
             type="button"
             className="primary-button"
-            disabled={simulando}
+            disabled={simulando || estaEntregado}
             onClick={() => void simularSiguientePaso()}
           >
-            {simulando ? "Simulando..." : "Simular siguiente estado"}
+            {estaEntregado
+              ? "Envío entregado"
+              : simulando
+                ? "Simulando..."
+                : "Simular siguiente estado"}
           </button>
+          {estaEntregado && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={reiniciarSimulacion}
+            >
+              Reiniciar simulación
+            </button>
+          )}
         </div>
       </div>
 
@@ -128,8 +176,8 @@ export function GuiaSeguimientoDoc({
         <strong>Historial de seguimiento (simulación):</strong>
         <ul>
           {historial.map((ev, i) => (
-            <li key={`${ev.estado}-${ev.hora}-${i}`}>
-              <strong>[{ev.hora}] {ev.estado}</strong> — {ev.ubicacion}: {ev.detalle}
+            <li key={`${ev.estado}-${ev.fechaHora}-${i}`}>
+              <strong>[{ev.fechaHora}] {ev.estado}</strong> — {ev.ubicacion}: {ev.detalle}
             </li>
           ))}
         </ul>
