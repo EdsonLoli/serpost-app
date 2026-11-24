@@ -66,8 +66,8 @@ function esTextoBasura(valor: string): boolean {
 
 function esDireccionValida(dir: string): { ok: boolean; motivo?: string } {
   const clean = dir.trim();
-  if (clean.length < 8 || clean.length > 20) {
-    return { ok: false, motivo: "Dirección: debe tener entre 8 y 20 caracteres." };
+  if (clean.length < 8 || clean.length > 200) {
+    return { ok: false, motivo: "Dirección: debe tener entre 8 y 200 caracteres." };
   }
   if (!/^[a-zA-Z0-9ñÑáéíóúÁÉÍÓÚ\s.,#°/-]+$/.test(clean)) {
     return {
@@ -356,8 +356,8 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
         <label>
           Rol
           <select value={form.rol} onChange={(e) => handleChange("rol", e.target.value)}>
-            <option value="remitente">remitente</option>
-            <option value="destinatario">destinatario</option>
+            <option value="remitente">Remitente</option>
+            <option value="destinatario">Destinatario</option>
           </select>
         </label>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import serpostLogo from "./assets/serpost-logo.png";
 import {
   getSavedBackendUrl,
   getSavedToken,
@@ -259,11 +260,11 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-mark">SP</div>
-          <div>
-            <strong>SERPOST SOA</strong>
-            <span>Gestion de clientes y envios</span>
-          </div>
+          <img
+            className="brand-logo"
+            src={serpostLogo}
+            alt="Serpost - El Correo del Perú"
+          />
         </div>
 
         <div className="header-actions">

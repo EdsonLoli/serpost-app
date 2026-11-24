@@ -34,8 +34,8 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: 0 36px;
-  color: white;
-  background: #123b76;
+  color: #123b76;
+  background: #b7dcf4;
   box-shadow: 0 2px 10px rgba(22, 32, 51, 0.18);
 }
 
@@ -45,26 +45,12 @@ textarea {
   gap: 12px;
 }
 
-.brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  border-radius: 10px;
-  font-weight: 800;
-  letter-spacing: 1px;
-}
-
-.brand div:last-child {
-  display: flex;
-  flex-direction: column;
-}
-
-.brand span {
-  margin-top: 2px;
-  font-size: 12px;
-  color: #cbdaf1;
+.brand-logo {
+  display: block;
+  width: 205px;
+  height: 56px;
+  border-radius: 4px;
+  object-fit: contain;
 }
 
 .header-actions {
@@ -84,15 +70,15 @@ textarea {
   border: 0;
   border-radius: 6px;
   padding: 0 12px;
-  color: #d8e5f5;
+  color: #123b76;
   background: transparent;
   cursor: pointer;
   font-weight: 600;
 }
 
 .nav-button:hover {
-  color: white;
-  background: #1b4a86;
+  color: #123b76;
+  background: rgba(18, 59, 118, 0.1);
 }
 
 .nav-button.active {
@@ -110,14 +96,14 @@ textarea {
 }
 
 .settings-button {
-  border: 1px solid #81a2cd;
-  color: white;
+  border: 1px solid #6688aa;
+  color: #123b76;
   background: transparent;
   padding: 9px 14px;
 }
 
 .settings-button:hover {
-  background: #1b4a86;
+  background: rgba(18, 59, 118, 0.1);
 }
 
 .content {
