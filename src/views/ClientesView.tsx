@@ -334,9 +334,9 @@ export function ClientesView({ baseUrl, token }: ClientesViewProps) {
         </label>
 
         <label>
-          Dirección (8 a 20 car., alfanumérico)
+          Dirección (8 a 200 car., alfanumérico)
           <input
-            maxLength={20}
+            maxLength={200}
             value={form.direccion}
             onChange={(e) => handleChange("direccion", e.target.value)}
             placeholder="Av Pacifico 123"
